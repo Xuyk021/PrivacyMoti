@@ -302,6 +302,8 @@ def init_state():
         "selected_summary_source": None,
         "pending_finalization": None,
         "is_processing_finalization": False,
+        "final_notice_start_time": None,
+        "final_notice_shown": False,
     }
 
     for key, value in defaults.items():
@@ -370,7 +372,7 @@ st.markdown(
 }
 
 .agent-label {
-    font-size: 0.78rem;
+    font-size: 0.92rem;
     font-weight: 800;
     letter-spacing: 0.02em;
     margin-bottom: 0.35rem;
@@ -390,7 +392,7 @@ st.markdown(
 
 .question-pill {
     display: inline-block;
-    font-size: 0.76rem;
+    font-size: 0.80rem;
     font-weight: 750;
     color: #1d4ed8;
     background: #dbeafe;
@@ -403,7 +405,7 @@ st.markdown(
 .risk-tag {
     display: inline-block;
     border-radius: 999px;
-    font-size: 0.74rem;
+    font-size: 0.78rem;
     font-weight: 800;
     padding: 0.18rem 0.55rem;
     margin-left: 0.35rem;
@@ -429,7 +431,7 @@ st.markdown(
 }
 
 .section-label {
-    font-size: 0.76rem;
+    font-size: 0.8rem;
     font-weight: 800;
     color: #6b7280;
     text-transform: uppercase;
@@ -473,7 +475,7 @@ st.markdown(
 
 .summary-caption {
     color: #6b7280;
-    font-size: 0.84rem;
+    font-size: 0.88rem;
     margin-bottom: 0.8rem;
 }
 
@@ -796,6 +798,10 @@ def process_memory_finalization():
         st.session_state.stage = "complete"
         st.session_state.pending_finalization = None
         st.session_state.is_processing_finalization = False
+
+        st.session_state.final_notice_start_time = time.time()
+        st.session_state.final_notice_shown = False
+
         st.rerun()
 
 st.markdown(
@@ -848,6 +854,8 @@ Please enter your Prolific ID to begin.
         st.session_state.selected_summary_source = None
         st.session_state.pending_finalization = None
         st.session_state.is_processing_finalization = False
+        st.session_state.final_notice_start_time = None
+        st.session_state.final_notice_shown = False
 
         save_message(
             participant_id=pid,
@@ -870,6 +878,18 @@ if st.session_state.participant_id is None:
 
 render_messages()
 
+if st.session_state.stage == "complete":
+    if st.session_state.final_notice_start_time is not None:
+        elapsed = time.time() - st.session_state.final_notice_start_time
+
+        if elapsed >= 10:
+            st.warning(
+                "You have completed this part of the study. Please return to the previous page to continue."
+            )
+            st.session_state.final_notice_shown = True
+        elif not st.session_state.final_notice_shown:
+            time.sleep(10 - elapsed)
+            st.rerun()
 
 if st.session_state.stage == "finalizing":
     process_memory_finalization()
