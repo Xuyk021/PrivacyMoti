@@ -1,5 +1,6 @@
 import html
 import json
+import random
 import time
 import uuid
 from datetime import datetime, timezone
@@ -19,7 +20,7 @@ st.set_page_config(
 )
 
 MODEL_NAME = "gpt-4o-mini"
-CONDITION_NAME = "condition_1_multi_agent_privacy_coaching"
+CONDITION_NAME = "condition_3_no_privacy_coaching"
 
 
 FIG_DIR = Path("fig")
@@ -69,6 +70,10 @@ def make_sort_key(role: str) -> str:
     return f"{now}#{role}#{uuid.uuid4().hex[:6]}"
 
 
+def generate_completion_code() -> str:
+    return f"FitPath_{random.SystemRandom().randint(0, 99999):05d}"
+
+
 def save_message(
     participant_id: str,
     role: str,
@@ -89,6 +94,13 @@ def save_message(
         "condition": CONDITION_NAME,
     }
 
+    try:
+        completion_code = st.session_state.get("completion_code")
+        if completion_code:
+            item["completion_code"] = completion_code
+    except Exception:
+        pass
+
     if extra:
         item["extra"] = json.dumps(extra, ensure_ascii=False)
 
@@ -96,8 +108,9 @@ def save_message(
 
 
 ONBOARDING_QUESTIONS = [
-    {"id": "preferred_name", "text": "How would you like to be addressed?"},
+    {"id": "preferred_name", "text": "Welcome to FitPath, I am an AI agent helping you create a personalized fitness plan. To begin, how would you like to be addressed?"},
     {"id": "fitness_goal", "text": "What’s your main fitness goal right now, and why does it matter to you?"},
+    {"id": "typical_day", "text": "Can you describe what a typical day looks like for you?"},
     {"id": "workout_environment", "text": "Can you describe the space and environment where you’d most likely work out?"},
     {"id": "limitations", "text": "Are there any physical limitations, injuries, or lifestyle factors I should keep in mind when building your plan?"},
     {"id": "age", "text": "To personalize things a bit more, could you share your age or age range?"},
@@ -113,7 +126,6 @@ Review the user's latest answer in a fitness onboarding conversation.
 
 Return only valid JSON:
 {
-  "risk_level": "low" | "moderate" | "high",
   "has_private_info": true or false,
   "private_info": ["short labels only"]
 }
@@ -122,6 +134,7 @@ Sensitive or private information may include full names, exact locations, contac
 medical conditions, injuries, age, gender, height, weight, workplace or school details,
 children or family details, and any combination of details that could identify the user.
 
+Do not classify the risk level. Do not use low, moderate, or high.
 Do not include HTML. Do not include markdown.
 """
 
@@ -140,15 +153,15 @@ Keep it to 1-2 short sentences.
 PRIVYPAL_REWRITE_PROMPT = """
 You are PrivyPal, an independent privacy-support agent.
 
-Rewrite the user's answer in a more privacy-conscious way.
+The user's answer contains personally sensitive information.
+Suggest a more privacy-conscious alternative description using abstraction or generalization.
 
-Return only the rewritten text.
+Return only the alternative description.
 Do not return JSON.
 Do not use HTML.
 Do not use markdown.
 Preserve the meaning needed for fitness planning.
 Generalize private details when possible.
-If there is no meaningful privacy risk, return a concise version of the original answer.
 """
 
 SUMMARY_PROMPT = """
@@ -162,6 +175,7 @@ Do not generate a fitness plan yet.
 Include:
 - preferred form of address
 - main fitness goal and motivation
+- typical day or daily routine
 - workout environment
 - physical limitations, injuries, or lifestyle factors
 - relevant demographic details
@@ -195,7 +209,7 @@ Create a short, concise, actionable weekly fitness plan based on the finalized m
 Requirements:
 - Keep it practical and encouraging.
 - Include a weekly structure.
-- Use the user's goal, routine, environment, and limitations.
+- Use the user's goal, typical day, environment, and limitations.
 - Highlight one thing the user can do today.
 - Avoid medical claims.
 - If there are injuries, limitations, or health concerns, suggest consulting a professional when appropriate.
@@ -244,46 +258,45 @@ def review_privacy(user_input: str) -> Dict[str, Any]:
         risk_data = call_json(PRIVYPAL_RISK_PROMPT, user_input)
     except Exception:
         risk_data = {
-            "risk_level": "low",
             "has_private_info": False,
             "private_info": [],
         }
-
-    risk_level = str(risk_data.get("risk_level", "low")).lower()
-    if risk_level not in ["low", "moderate", "high"]:
-        risk_level = "low"
 
     private_info = risk_data.get("private_info", [])
     if not isinstance(private_info, list):
         private_info = []
 
     private_info = [clean_plain_text(x) for x in private_info if clean_plain_text(x)]
+    has_private_info = bool(risk_data.get("has_private_info", False)) or bool(private_info)
 
     shared_payload = json.dumps(
         {
             "user_answer": user_input,
-            "risk_level": risk_level,
+            "has_private_info": has_private_info,
             "private_info": private_info,
         },
         ensure_ascii=False,
     )
 
-    try:
-        explanation = call_text(PRIVYPAL_EXPLANATION_PROMPT, shared_payload, temperature=0.2)
-    except Exception:
-        explanation = "I could not complete a detailed privacy explanation for this answer."
+    if has_private_info:
+        try:
+            alternative_description = call_text(PRIVYPAL_REWRITE_PROMPT, shared_payload, temperature=0.2)
+        except Exception:
+            alternative_description = user_input
 
-    try:
-        rewrite = call_text(PRIVYPAL_REWRITE_PROMPT, shared_payload, temperature=0.2)
-    except Exception:
-        rewrite = user_input
+        status_text = "Contains sensitive information"
+        message_text = "This input appears to contain personally sensitive information. You may use the alternative description below to make it more abstract or general."
+    else:
+        alternative_description = ""
+        status_text = "Does not contain sensitive information"
+        message_text = "No sensitive information was detected. You are good to go."
 
     return {
-        "risk_level": risk_level,
-        "has_private_info": bool(risk_data.get("has_private_info", False)),
+        "has_private_info": has_private_info,
         "private_info": private_info,
-        "brief_explanation": clean_plain_text(explanation),
-        "rewrite": clean_plain_text(rewrite),
+        "privacy_status": status_text,
+        "message_text": clean_plain_text(message_text),
+        "alternative_description": clean_plain_text(alternative_description),
     }
 
 
@@ -304,6 +317,7 @@ def init_state():
         "is_processing_finalization": False,
         "final_notice_start_time": None,
         "final_notice_shown": False,
+        "completion_code": None,
     }
 
     for key, value in defaults.items():
@@ -412,19 +426,13 @@ st.markdown(
     vertical-align: middle;
 }
 
-.risk-low {
+.privacy-safe {
     color: #166534;
     background: #dcfce7;
     border: 1px solid #bbf7d0;
 }
 
-.risk-moderate {
-    color: #92400e;
-    background: #fef3c7;
-    border: 1px solid #fde68a;
-}
-
-.risk-high {
+.privacy-sensitive {
     color: #991b1b;
     background: #fee2e2;
     border: 1px solid #fecaca;
@@ -541,32 +549,40 @@ def render_memory_notice_card(content: str):
 
 
 def render_privypal_card(result: Dict[str, Any]):
-    risk_level = str(result.get("risk_level", "low")).lower()
-    if risk_level not in ["low", "moderate", "high"]:
-        risk_level = "low"
+    has_private_info = bool(result.get("has_private_info", False))
+    tag_class = "privacy-sensitive" if has_private_info else "privacy-safe"
+    status_text = clean_plain_text(
+        result.get("privacy_status", "包含隐私信息" if has_private_info else "不包含隐私信息")
+    )
+    status_icon = "" if has_private_info else "✓ "
 
     private_info = result.get("private_info", [])
     if not isinstance(private_info, list):
         private_info = []
 
     private_text = ", ".join([clean_plain_text(x) for x in private_info]) if private_info else "No specific private information identified."
-    explanation = clean_plain_text(result.get("brief_explanation", ""))
-    rewrite = clean_plain_text(result.get("rewrite", ""))
+    message_text = clean_plain_text(result.get("message_text", ""))
+    alternative_description = clean_plain_text(result.get("alternative_description", ""))
 
     card_html = (
         "<div class='agent-card privypal-card'>"
         "<div class='agent-label privypal-label'>"
         "PrivyPal privacy review"
-        f"<span class='risk-tag risk-{risk_level}'>{risk_level.upper()}</span>"
+        f"<span class='risk-tag {tag_class}'>{status_icon}{safe_html_text(status_text)}</span>"
         "</div>"
+        "<div class='section-label'>Privacy check result</div>"
+        f"<div class='card-text'>{safe_html_text(message_text)}</div>"
         "<div class='section-label'>Private information noticed</div>"
         f"<div class='card-text'>{safe_html_text(private_text)}</div>"
-        "<div class='section-label'>Why this may matter</div>"
-        f"<div class='card-text'>{safe_html_text(explanation)}</div>"
-        "<div class='section-label'>Privacy-conscious rewrite</div>"
-        f"<div class='card-text'>{safe_html_text(rewrite)}</div>"
-        "</div>"
     )
+
+    if has_private_info and alternative_description:
+        card_html += (
+            "<div class='section-label'>Alternative description</div>"
+            f"<div class='card-text'>{safe_html_text(alternative_description)}</div>"
+        )
+
+    card_html += "</div>"
     st.markdown(card_html, unsafe_allow_html=True)
 
 
@@ -664,19 +680,16 @@ def create_summaries():
     original_summary = clean_plain_text(
         call_text(SUMMARY_PROMPT, answers_payload, temperature=0.2)
     )
-    privacy_summary = clean_plain_text(
-        call_text(SUMMARY_REWRITE_PROMPT, original_summary, temperature=0.2)
-    )
 
     st.session_state.original_summary = original_summary
-    st.session_state.privacy_summary = privacy_summary
+    st.session_state.privacy_summary = None
     st.session_state.stage = "summary_choice"
 
     append_message(
         role="assistant",
         content=(
             "Thank you. Here is a quick summary of your needs, goals, and limitations. "
-            "Please choose which version should be saved to memory."
+            "Please confirm this version or type a revised summary before it is saved to memory."
         ),
         agent="FitPath",
         msg_type="fitpath_card",
@@ -809,7 +822,7 @@ st.markdown(
 <div class="hero">
     <div class="hero-title">FitPath</div>
     <div class="hero-subtitle">
-        A personalized fitness planning assistant with independent privacy coaching from PrivyPal.
+        A personalized fitness planning assistant.
     </div>
 </div>
 """,
@@ -825,9 +838,6 @@ def welcome_dialog():
 FitPath is a personalized conversational fitness planning AI assistant.
 
 It includes a memory feature that helps provide a more personalized fitness plan.
-
-FitPath also collaborates with **PrivyPal**, an independent privacy-support agent.
-PrivyPal operates independently and does not use memory.
 
 Please enter your Prolific ID to begin.
         """
@@ -856,15 +866,19 @@ Please enter your Prolific ID to begin.
         st.session_state.is_processing_finalization = False
         st.session_state.final_notice_start_time = None
         st.session_state.final_notice_shown = False
+        st.session_state.completion_code = generate_completion_code()
 
         save_message(
             participant_id=pid,
             role="system",
-            content="Participant started Condition 1.",
+            content="Participant started Condition 3.",
             turn_index=0,
             stage="participant_start",
             agent="system",
-            extra={"condition": CONDITION_NAME},
+            extra={
+                "condition": CONDITION_NAME,
+                "completion_code": st.session_state.completion_code,
+            },
         )
 
         ask_current_question()
@@ -883,8 +897,11 @@ if st.session_state.stage == "complete":
         elapsed = time.time() - st.session_state.final_notice_start_time
 
         if elapsed >= 10:
+            completion_code = st.session_state.get("completion_code") or generate_completion_code()
+            st.session_state.completion_code = completion_code
             st.warning(
-                "You have completed this part of the study. Please return to the previous page to continue."
+                "You have completed the AI tool interaction. Please return the following code to the questionnaire and proceed to the last part of the study. "
+                f"Code: {completion_code}"
             )
             st.session_state.final_notice_shown = True
         elif not st.session_state.final_notice_shown:
@@ -897,41 +914,22 @@ if st.session_state.stage == "finalizing":
 
 
 if st.session_state.stage == "summary_choice":
-    st.markdown("### Choose what to save to memory")
+    st.markdown("### Confirm what to save to memory")
 
-    col1, col2 = st.columns(2, gap="medium")
+    summary_html = (
+        "<div class='summary-card original'>"
+        "<div class='summary-title'>Onboarding summary</div>"
+        "<div class='summary-caption'>Based directly on your answers. Please confirm or revise it before saving to memory.</div>"
+        f"<div class='card-text'>{safe_html_text(st.session_state.original_summary or '')}</div>"
+        "</div>"
+    )
+    st.markdown(summary_html, unsafe_allow_html=True)
 
-    with col1:
-        summary_html = (
-            "<div class='summary-card original'>"
-            "<div class='summary-title'>Original summary</div>"
-            "<div class='summary-caption'>More detailed version based directly on your answers.</div>"
-            f"<div class='card-text'>{safe_html_text(st.session_state.original_summary or '')}</div>"
-            "</div>"
-        )
-        st.markdown(summary_html, unsafe_allow_html=True)
-
-        use_original = st.button(
-            "Use original summary",
-            use_container_width=True,
-            key="use_original_summary",
-        )
-
-    with col2:
-        summary_html = (
-            "<div class='summary-card privacy'>"
-            "<div class='summary-title'>Privacy-protective summary</div>"
-            "<div class='summary-caption'>More generalized version prepared by PrivyPal.</div>"
-            f"<div class='card-text'>{safe_html_text(st.session_state.privacy_summary or '')}</div>"
-            "</div>"
-        )
-        st.markdown(summary_html, unsafe_allow_html=True)
-
-        use_privacy = st.button(
-            "Use privacy-protective summary",
-            use_container_width=True,
-            key="use_privacy_summary",
-        )
+    use_original = st.button(
+        "Use this summary",
+        use_container_width=True,
+        key="use_original_summary",
+    )
 
     revised_summary = st.chat_input("Or type one revised summary here...")
 
@@ -939,32 +937,16 @@ if st.session_state.stage == "summary_choice":
         save_message(
             participant_id=st.session_state.participant_id,
             role="user_action",
-            content="User selected original summary.",
+            content="User confirmed onboarding summary.",
             turn_index=st.session_state.turn_index,
             stage="summary_choice",
             agent="user",
             extra={
-                "selection_source": "Original summary",
+                "selection_source": "Confirmed onboarding summary",
                 "selected_summary": st.session_state.original_summary,
             },
         )
-        queue_memory_finalization(st.session_state.original_summary, "Original summary")
-        st.rerun()
-
-    if use_privacy:
-        save_message(
-            participant_id=st.session_state.participant_id,
-            role="user_action",
-            content="User selected privacy-protective summary.",
-            turn_index=st.session_state.turn_index,
-            stage="summary_choice",
-            agent="user",
-            extra={
-                "selection_source": "Privacy-protective summary",
-                "selected_summary": st.session_state.privacy_summary,
-            },
-        )
-        queue_memory_finalization(st.session_state.privacy_summary, "Privacy-protective summary")
+        queue_memory_finalization(st.session_state.original_summary, "Confirmed onboarding summary")
         st.rerun()
 
     if revised_summary:
@@ -1000,7 +982,7 @@ if st.session_state.stage == "summary_choice":
             )
 
             if st.session_state.summary_revision_used:
-                warning = "You have already used your one revision. Please choose one of the two summary versions above."
+                warning = "You have already used your one revision. Please confirm the summary above."
                 append_message(
                     role="assistant",
                     content=warning,
@@ -1068,24 +1050,6 @@ if user_input:
             "question": q["text"],
             "answer": user_input,
         })
-
-        with st.chat_message("assistant", avatar=PRIVYPAL_AVATAR):
-            with st.spinner("PrivyPal is reviewing your answer..."):
-                privacy_result = review_privacy(user_input)
-
-            render_privypal_card(privacy_result)
-
-        append_message(
-            role="assistant",
-            content="PrivyPal privacy review",
-            agent="PrivyPal",
-            msg_type="privypal_card",
-            avatar=PRIVYPAL_AVATAR,
-            privacy_result=privacy_result,
-            stage="per_question_privacy_check",
-            save=True,
-            extra=privacy_result,
-        )
 
         st.session_state.question_index += 1
 
