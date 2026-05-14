@@ -130,9 +130,7 @@ Return only valid JSON:
   "private_info": ["short labels only"]
 }
 
-Sensitive or private information may include full names, exact locations, contact information,
-medical conditions, injuries, age, gender, height, weight, workplace or school details,
-children or family details, and any combination of details that could identify the user.
+Sensitive or private information may include full names, geographic locations, neighborhoods, exact locations, contact information, medical conditions, injuries, age, gender, height, weight, workplace or school details, children or family details, and any combination of details that could identify the user.
 
 Do not classify the risk level. Do not use low, moderate, or high.
 Do not include HTML. Do not include markdown.
@@ -213,9 +211,8 @@ Requirements:
 - Highlight one thing the user can do today.
 - Avoid medical claims.
 - If there are injuries, limitations, or health concerns, suggest consulting a professional when appropriate.
-- End by asking: "Would you like to change anything?"
-- Then include this closing sentence:
-"Thanks for sharing all of that. You can always come back anytime if you’d like to adjust your plan or get new recommendations."
+- End by this closing sentence:
+"Thanks for testing the AI system. You can always come back anytime if you'd like to adjust your plan or get new recommendations."
 
 Return plain text only.
 Do not use HTML.
