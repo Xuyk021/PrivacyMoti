@@ -11,6 +11,15 @@ import boto3
 import streamlit as st
 from openai import OpenAI
 
+from prompts import (
+    PRIVYPAL_SENSITIVITY_PROMPT,
+    PRIVYPAL_REWRITE_PROMPT,
+    SUMMARY_PROMPT,
+    SUMMARY_REWRITE_PROMPT,
+    FITNESS_PLAN_PROMPT,
+)
+
+from config.onboarding import ONBOARDING_QUESTIONS
 
 st.set_page_config(
     page_title="FitPath",
@@ -107,171 +116,8 @@ def save_message(
     table.put_item(Item=item)
 
 
-ONBOARDING_QUESTIONS = [
-    {
-        "id": "preferred_name", 
-        "text": "Welcome to FitPath, I am an AI agent helping you create a personalized fitness plan. To begin, how would you like to be addressed?"
-    },
-    {
-        "id": "fitness_preferences",
-        "text": "What types of physical activity do you enjoy or want to try?"
-    },
-    {
-        "id": "motivations",
-        "text": "What are your primary goals, such as weight loss, strength building, stress relief, or general health?"
-    },
-    {
-        "id": "exercise_availability",
-        "text": "How many days per week can you commit to exercise?"
-    },
-    {
-        "id": "lifestyle_routine",
-        "text": "What does a typical day look like for you?"
-    },
-    {
-        "id": "body_biometric_information",
-        "text": "What body metrics, such as age, weight, height, or current fitness level, would you like us to consider when creating your plan?"
-    },
-    {
-        "id": "physical_health_conditions",
-        "text": "What physical health conditions or injuries should we account for when creating your plan?"
-    },
-    {
-        "id": "demographic_information",
-        "text": "What personal characteristics, such as age, gender, race, or family income, would you like us to consider in tailoring your plan?"
-    },
-    {
-        "id": "environmental_access_information",
-        "text": "What equipment or spaces do you have access to for exercise, for example, a gym, home equipment, outdoor spaces, or nothing?"
-    }
-]
 
 
-PRIVYPAL_SENSITIVITY_PROMPT = """
-You are PrivyPal, an independent privacy-support agent.
-
-Review the user's latest answer in a fitness onboarding conversation.
-
-Evaluate whether the answer contains privacy-sensitive information, not privacy risk.
-
-Return only valid JSON:
-{
-  "has_sensitive_info": true or false,
-  "sensitive_info": ["short labels only"]
-}
-
-Privacy-sensitive information may include:
-
-1. GDPR special category data:
-- racial or ethnic origin
-- political opinions
-- religious or philosophical beliefs
-- trade-union membership
-- genetic data
-- biometric data processed to identify a human being
-- health-related data
-- data concerning sex life or sexual orientation
-
-2. HIPAA-related protected health information:
-- individually identifiable information, including demographic data, that relates to a person's past, present, or future physical or mental health condition
-- health care provided to the person
-- payment for health care
-
-3. Additional categories identified in our pretest:
-- mental health information
-- location data
-- family responsibilities
-- caregiving responsibilities
-
-Also consider common identifiable information such as full names, contact information, exact locations, workplace or school details, and combinations of demographic details that could identify the user.
-
-Do not classify privacy sensitivity.
-Do not use low, moderate, or high.
-Do not include HTML.
-Do not include markdown.
-"""
-
-PRIVYPAL_EXPLANATION_PROMPT = """
-You are PrivyPal, an independent privacy-support agent.
-
-Given the user's answer and the detected privacy sensitivity, write a brief explanation of why this information may or may not be privacy-sensitive.
-
-Return plain text only.
-Do not return JSON.
-Do not use HTML.
-Do not use markdown.
-Keep it to 1-2 short sentences.
-"""
-
-PRIVYPAL_REWRITE_PROMPT = """
-You are PrivyPal, an independent privacy-support agent.
-
-The user's answer contains personally sensitive information.
-Suggest a more privacy-conscious alternative description using abstraction or generalization.
-
-Return only the alternative description.
-Do not return JSON.
-Do not use HTML.
-Do not use markdown.
-Preserve the meaning needed for fitness planning.
-Generalize private details when possible.
-"""
-
-SUMMARY_PROMPT = """
-You are FitPath.
-
-Summarize only the user's original onboarding answers.
-Do not include PrivyPal's rewrites.
-Do not add new information.
-Do not generate a fitness plan yet.
-
-Include:
-- preferred form of address
-- main fitness goal and motivation
-- typical day or daily routine
-- workout environment
-- physical limitations, injuries, or lifestyle factors
-- relevant demographic details
-
-Return plain text only.
-Do not use HTML.
-Keep the summary clear, direct, and concise.
-"""
-
-SUMMARY_REWRITE_PROMPT = """
-You are PrivyPal, an independent privacy-support agent.
-
-Rewrite the user's onboarding summary before it is saved to memory.
-
-Your rewrite should:
-- remove unnecessary sensitive details
-- generalize private information where possible
-- retain only what is needed for personalization
-- avoid exact details unless needed for fitness safety or planning
-- keep the result useful for FitPath to generate a weekly plan
-
-Return plain text only.
-Do not use HTML.
-"""
-
-FITNESS_PLAN_PROMPT = """
-You are FitPath, a personalized conversational fitness planning AI assistant.
-
-Create a short, concise, actionable weekly fitness plan based on the finalized memory summary.
-
-Requirements:
-- Keep it practical and encouraging.
-- Include a weekly structure.
-- Use the user's goal, typical day, environment, and limitations.
-- Highlight one thing the user can do today.
-- Avoid medical claims.
-- If there are injuries, limitations, or health concerns, suggest consulting a professional when appropriate.
-- End by this closing sentence:
-"Thanks for testing the AI system. You can always come back anytime if you'd like to adjust your plan or get new recommendations."
-
-Return plain text only.
-Do not use HTML.
-"""
 
 
 def call_json(system_prompt: str, user_text: str) -> Dict[str, Any]:
