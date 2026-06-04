@@ -1,6 +1,5 @@
 import html
 import json
-import random
 import time
 import uuid
 from datetime import datetime, timezone
@@ -70,10 +69,6 @@ def make_sort_key(role: str) -> str:
     return f"{now}#{role}#{uuid.uuid4().hex[:6]}"
 
 
-def generate_completion_code() -> str:
-    return f"FitPath_{random.SystemRandom().randint(0, 99999):05d}"
-
-
 def save_message(
     participant_id: str,
     role: str,
@@ -94,13 +89,6 @@ def save_message(
         "condition": CONDITION_NAME,
     }
 
-    try:
-        completion_code = st.session_state.get("completion_code")
-        if completion_code:
-            item["completion_code"] = completion_code
-    except Exception:
-        pass
-
     if extra:
         item["extra"] = json.dumps(extra, ensure_ascii=False)
 
@@ -108,93 +96,39 @@ def save_message(
 
 
 ONBOARDING_QUESTIONS = [
-    {
-        "id": "preferred_name", 
-        "text": "Welcome to FitPath, I am an AI agent helping you create a personalized fitness plan. To begin, how would you like to be addressed?"
-    },
-    {
-        "id": "fitness_preferences",
-        "text": "What types of physical activity do you enjoy or want to try?"
-    },
-    {
-        "id": "motivations",
-        "text": "What are your primary goals, such as weight loss, strength building, stress relief, or general health?"
-    },
-    {
-        "id": "exercise_availability",
-        "text": "How many days per week can you commit to exercise?"
-    },
-    {
-        "id": "lifestyle_routine",
-        "text": "What does a typical day look like for you?"
-    },
-    {
-        "id": "body_biometric_information",
-        "text": "What body metrics, such as age, weight, height, or current fitness level, would you like us to consider when creating your plan?"
-    },
-    {
-        "id": "physical_health_conditions",
-        "text": "What physical health conditions or injuries should we account for when creating your plan?"
-    },
-    {
-        "id": "demographic_information",
-        "text": "What personal characteristics, such as age, gender, race, or family income, would you like us to consider in tailoring your plan?"
-    },
-    {
-        "id": "environmental_access_information",
-        "text": "What equipment or spaces do you have access to for exercise, for example, a gym, home equipment, outdoor spaces, or nothing?"
-    }
+    {"id": "preferred_name", "text": "How would you like to be addressed?"},
+    {"id": "fitness_goal", "text": "What’s your main fitness goal right now, and why does it matter to you?"},
+    {"id": "workout_environment", "text": "Can you describe the space and environment where you’d most likely work out?"},
+    {"id": "limitations", "text": "Are there any physical limitations, injuries, or lifestyle factors I should keep in mind when building your plan?"},
+    {"id": "age", "text": "To personalize things a bit more, could you share your age or age range?"},
+    {"id": "gender", "text": "How do you identify in terms of gender?"},
+    {"id": "height_weight", "text": "What’s your height and current weight?"},
 ]
 
 
-PRIVYPAL_SENSITIVITY_PROMPT = """
+PRIVYPAL_RISK_PROMPT = """
 You are PrivyPal, an independent privacy-support agent.
 
 Review the user's latest answer in a fitness onboarding conversation.
 
-Evaluate whether the answer contains privacy-sensitive information, not privacy risk.
-
 Return only valid JSON:
 {
-  "has_sensitive_info": true or false,
-  "sensitive_info": ["short labels only"]
+  "risk_level": "low" | "moderate" | "high",
+  "has_private_info": true or false,
+  "private_info": ["short labels only"]
 }
 
-Privacy-sensitive information may include:
+Sensitive or private information may include full names, exact locations, contact information,
+medical conditions, injuries, age, gender, height, weight, workplace or school details,
+children or family details, and any combination of details that could identify the user.
 
-1. GDPR special category data:
-- racial or ethnic origin
-- political opinions
-- religious or philosophical beliefs
-- trade-union membership
-- genetic data
-- biometric data processed to identify a human being
-- health-related data
-- data concerning sex life or sexual orientation
-
-2. HIPAA-related protected health information:
-- individually identifiable information, including demographic data, that relates to a person's past, present, or future physical or mental health condition
-- health care provided to the person
-- payment for health care
-
-3. Additional categories identified in our pretest:
-- mental health information
-- location data
-- family responsibilities
-- caregiving responsibilities
-
-Also consider common identifiable information such as full names, contact information, exact locations, workplace or school details, and combinations of demographic details that could identify the user.
-
-Do not classify privacy sensitivity.
-Do not use low, moderate, or high.
-Do not include HTML.
-Do not include markdown.
+Do not include HTML. Do not include markdown.
 """
 
 PRIVYPAL_EXPLANATION_PROMPT = """
 You are PrivyPal, an independent privacy-support agent.
 
-Given the user's answer and the detected privacy sensitivity, write a brief explanation of why this information may or may not be privacy-sensitive.
+Given the user's answer and the detected privacy risk, write a brief explanation of why this information may or may not be privacy-sensitive.
 
 Return plain text only.
 Do not return JSON.
@@ -206,15 +140,15 @@ Keep it to 1-2 short sentences.
 PRIVYPAL_REWRITE_PROMPT = """
 You are PrivyPal, an independent privacy-support agent.
 
-The user's answer contains personally sensitive information.
-Suggest a more privacy-conscious alternative description using abstraction or generalization.
+Rewrite the user's answer in a more privacy-conscious way.
 
-Return only the alternative description.
+Return only the rewritten text.
 Do not return JSON.
 Do not use HTML.
 Do not use markdown.
 Preserve the meaning needed for fitness planning.
 Generalize private details when possible.
+If there is no meaningful privacy risk, return a concise version of the original answer.
 """
 
 SUMMARY_PROMPT = """
@@ -228,7 +162,6 @@ Do not generate a fitness plan yet.
 Include:
 - preferred form of address
 - main fitness goal and motivation
-- typical day or daily routine
 - workout environment
 - physical limitations, injuries, or lifestyle factors
 - relevant demographic details
@@ -262,12 +195,13 @@ Create a short, concise, actionable weekly fitness plan based on the finalized m
 Requirements:
 - Keep it practical and encouraging.
 - Include a weekly structure.
-- Use the user's goal, typical day, environment, and limitations.
+- Use the user's goal, routine, environment, and limitations.
 - Highlight one thing the user can do today.
 - Avoid medical claims.
 - If there are injuries, limitations, or health concerns, suggest consulting a professional when appropriate.
-- End by this closing sentence:
-"Thanks for testing the AI system. You can always come back anytime if you'd like to adjust your plan or get new recommendations."
+- End by asking: "Would you like to change anything?"
+- Then include this closing sentence:
+"Thanks for sharing all of that. You can always come back anytime if you’d like to adjust your plan or get new recommendations."
 
 Return plain text only.
 Do not use HTML.
@@ -307,49 +241,49 @@ def clean_plain_text(text: Any) -> str:
 
 def review_privacy(user_input: str) -> Dict[str, Any]:
     try:
-        sensitivity_data = call_json(PRIVYPAL_SENSITIVITY_PROMPT, user_input)
+        risk_data = call_json(PRIVYPAL_RISK_PROMPT, user_input)
     except Exception:
-        sensitivity_data = {
-            "has_sensitive_info": False,
-            "sensitive_info": [],
+        risk_data = {
+            "risk_level": "low",
+            "has_private_info": False,
+            "private_info": [],
         }
 
-    sensitive_info = sensitivity_data.get("sensitive_info", [])
-    if not isinstance(sensitive_info, list):
-        sensitive_info = []
+    risk_level = str(risk_data.get("risk_level", "low")).lower()
+    if risk_level not in ["low", "moderate", "high"]:
+        risk_level = "low"
 
-    sensitive_info = [clean_plain_text(x) for x in sensitive_info if clean_plain_text(x)]
-    has_sensitive_info = bool(sensitivity_data.get("has_sensitive_info", False)) or bool(sensitive_info)
+    private_info = risk_data.get("private_info", [])
+    if not isinstance(private_info, list):
+        private_info = []
+
+    private_info = [clean_plain_text(x) for x in private_info if clean_plain_text(x)]
 
     shared_payload = json.dumps(
         {
             "user_answer": user_input,
-            "has_sensitive_info": has_sensitive_info,
-            "sensitive_info": sensitive_info,
+            "risk_level": risk_level,
+            "private_info": private_info,
         },
         ensure_ascii=False,
     )
 
-    if has_sensitive_info:
-        try:
-            alternative_description = call_text(PRIVYPAL_REWRITE_PROMPT, shared_payload, temperature=0.2)
-        except Exception:
-            alternative_description = user_input
+    try:
+        explanation = call_text(PRIVYPAL_EXPLANATION_PROMPT, shared_payload, temperature=0.2)
+    except Exception:
+        explanation = "I could not complete a detailed privacy explanation for this answer."
 
-        status_text = "Contains privacy-sensitive information"
-        message_text = "This input appears to contain privacy-sensitive information. You may use the alternative description below to make it more abstract or general."
-    else:
-        alternative_description = ""
-        status_text = "Does not contain privacy-sensitive information"
-        message_text = "No privacy-sensitive information was detected. You are good to go."
+    try:
+        rewrite = call_text(PRIVYPAL_REWRITE_PROMPT, shared_payload, temperature=0.2)
+    except Exception:
+        rewrite = user_input
 
     return {
-        "has_private_info": has_sensitive_info,
-        "private_info": sensitive_info,
-        "privacy_status": status_text,
-        "message_text": clean_plain_text(message_text),
-        "alternative_description": clean_plain_text(alternative_description),
-        "sensitivity_evaluation": True,
+        "risk_level": risk_level,
+        "has_private_info": bool(risk_data.get("has_private_info", False)),
+        "private_info": private_info,
+        "brief_explanation": clean_plain_text(explanation),
+        "rewrite": clean_plain_text(rewrite),
     }
 
 
@@ -370,7 +304,6 @@ def init_state():
         "is_processing_finalization": False,
         "final_notice_start_time": None,
         "final_notice_shown": False,
-        "completion_code": None,
     }
 
     for key, value in defaults.items():
@@ -469,7 +402,7 @@ st.markdown(
     margin-bottom: 0.45rem;
 }
 
-.sensitivity-tag {
+.risk-tag {
     display: inline-block;
     border-radius: 999px;
     font-size: 0.78rem;
@@ -479,13 +412,19 @@ st.markdown(
     vertical-align: middle;
 }
 
-.privacy-safe {
+.risk-low {
     color: #166534;
     background: #dcfce7;
     border: 1px solid #bbf7d0;
 }
 
-.privacy-sensitive {
+.risk-moderate {
+    color: #92400e;
+    background: #fef3c7;
+    border: 1px solid #fde68a;
+}
+
+.risk-high {
     color: #991b1b;
     background: #fee2e2;
     border: 1px solid #fecaca;
@@ -602,40 +541,32 @@ def render_memory_notice_card(content: str):
 
 
 def render_privypal_card(result: Dict[str, Any]):
-    has_private_info = bool(result.get("has_private_info", False))
-    tag_class = "privacy-sensitive" if has_private_info else "privacy-safe"
-    status_text = clean_plain_text(
-        result.get("privacy_status", "包含隐私信息" if has_private_info else "不包含隐私信息")
-    )
-    status_icon = "" if has_private_info else "✓ "
+    risk_level = str(result.get("risk_level", "low")).lower()
+    if risk_level not in ["low", "moderate", "high"]:
+        risk_level = "low"
 
     private_info = result.get("private_info", [])
     if not isinstance(private_info, list):
         private_info = []
 
-    private_text = ", ".join([clean_plain_text(x) for x in private_info]) if private_info else "No specific sensitive information identified."
-    message_text = clean_plain_text(result.get("message_text", ""))
-    alternative_description = clean_plain_text(result.get("alternative_description", ""))
+    private_text = ", ".join([clean_plain_text(x) for x in private_info]) if private_info else "No specific private information identified."
+    explanation = clean_plain_text(result.get("brief_explanation", ""))
+    rewrite = clean_plain_text(result.get("rewrite", ""))
 
     card_html = (
         "<div class='agent-card privypal-card'>"
         "<div class='agent-label privypal-label'>"
         "PrivyPal privacy review"
-        f"<span class='sensitivity-tag {tag_class}'>{status_icon}{safe_html_text(status_text)}</span>"
+        f"<span class='risk-tag risk-{risk_level}'>{risk_level.upper()}</span>"
         "</div>"
-        "<div class='section-label'>Privacy check result</div>"
-        f"<div class='card-text'>{safe_html_text(message_text)}</div>"
-        "<div class='section-label'>Sensitive private information detected</div>"
+        "<div class='section-label'>Private information noticed</div>"
         f"<div class='card-text'>{safe_html_text(private_text)}</div>"
+        "<div class='section-label'>Why this may matter</div>"
+        f"<div class='card-text'>{safe_html_text(explanation)}</div>"
+        "<div class='section-label'>Privacy-conscious rewrite</div>"
+        f"<div class='card-text'>{safe_html_text(rewrite)}</div>"
+        "</div>"
     )
-
-    if has_private_info and alternative_description:
-        card_html += (
-            "<div class='section-label'>Alternative description</div>"
-            f"<div class='card-text'>{safe_html_text(alternative_description)}</div>"
-        )
-
-    card_html += "</div>"
     st.markdown(card_html, unsafe_allow_html=True)
 
 
@@ -925,7 +856,6 @@ Please enter your Prolific ID to begin.
         st.session_state.is_processing_finalization = False
         st.session_state.final_notice_start_time = None
         st.session_state.final_notice_shown = False
-        st.session_state.completion_code = generate_completion_code()
 
         save_message(
             participant_id=pid,
@@ -934,10 +864,7 @@ Please enter your Prolific ID to begin.
             turn_index=0,
             stage="participant_start",
             agent="system",
-            extra={
-                "condition": CONDITION_NAME,
-                "completion_code": st.session_state.completion_code,
-            },
+            extra={"condition": CONDITION_NAME},
         )
 
         ask_current_question()
@@ -956,11 +883,8 @@ if st.session_state.stage == "complete":
         elapsed = time.time() - st.session_state.final_notice_start_time
 
         if elapsed >= 10:
-            completion_code = st.session_state.get("completion_code") or generate_completion_code()
-            st.session_state.completion_code = completion_code
             st.warning(
-                "You have completed the AI tool interaction. Please return the following code to the questionnaire and proceed to the last part of the study. "
-                f"Code: {completion_code}"
+                "You have completed this part of the study. Please return to the previous page to continue."
             )
             st.session_state.final_notice_shown = True
         elif not st.session_state.final_notice_shown:
@@ -1158,7 +1082,7 @@ if user_input:
             msg_type="privypal_card",
             avatar=PRIVYPAL_AVATAR,
             privacy_result=privacy_result,
-            stage="per_question_privacy_sensitivity_check",
+            stage="per_question_privacy_check",
             save=True,
             extra=privacy_result,
         )
