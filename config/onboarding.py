@@ -1,3 +1,9 @@
+from pathlib import Path
+
+MODEL_NAME = "gpt-4o-mini"
+
+FIG_DIR = Path("fig")
+
 ONBOARDING_QUESTIONS = [
     {
         "id": "fitness_preferences",

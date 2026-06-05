@@ -12,6 +12,16 @@ import streamlit as st
 from openai import OpenAI
 
 
+from prompts import (
+    PRIVYPAL_SENSITIVITY_PROMPT,
+    PRIVYPAL_REWRITE_PROMPT,
+    SUMMARY_PROMPT,
+    SUMMARY_REWRITE_PROMPT,
+    FITNESS_PLAN_PROMPT,
+)
+
+from config.onboarding import ONBOARDING_QUESTIONS, MODEL_NAME, FIG_DIR
+
 st.set_page_config(
     page_title="FitPath",
     page_icon="",
@@ -19,11 +29,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-MODEL_NAME = "gpt-4o-mini"
+
+st.set_page_config(
+    page_title="FitPath",
+    page_icon="",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
+
+
 CONDITION_NAME = "condition_2_single_agent_privacy_coaching"
 
 
-FIG_DIR = Path("fig")
+
 
 
 def find_image(candidates: List[str]) -> Optional[str]:
@@ -107,116 +125,6 @@ def save_message(
     table.put_item(Item=item)
 
 
-ONBOARDING_QUESTIONS = [
-    {"id": "preferred_name", "text": "Welcome to FitPath, I am an AI agent helping you create a personalized fitness plan. To begin, how would you like to be addressed?"},
-    {"id": "fitness_goal", "text": "What’s your main fitness goal right now, and why does it matter to you?"},
-    {"id": "typical_day", "text": "Can you describe what a typical day looks like for you?"},
-    {"id": "workout_environment", "text": "Can you describe the space and environment where you’d most likely work out?"},
-    {"id": "limitations", "text": "Are there any physical limitations, injuries, or lifestyle factors I should keep in mind when building your plan?"},
-    {"id": "age", "text": "To personalize things a bit more, could you share your age or age range?"},
-    {"id": "gender", "text": "How do you identify in terms of gender?"},
-    {"id": "height_weight", "text": "What’s your height and current weight?"},
-]
-
-
-PRIVYPAL_RISK_PROMPT = """
-You are FitPath, a personalized fitness planning AI assistant that also provides privacy support.
-
-Review the user's latest answer in a fitness onboarding conversation.
-
-Return only valid JSON:
-{
-  "has_private_info": true or false,
-  "private_info": ["short labels only"]
-}
-
-Sensitive or private information may include full names, geographic locations, neighborhoods, exact locations, contact information, medical conditions, injuries, age, gender, height, weight, workplace or school details, children or family details, and any combination of details that could identify the user.
-
-Do not classify the risk level. Do not use low, moderate, or high.
-Do not include HTML. Do not include markdown.
-"""
-
-PRIVYPAL_EXPLANATION_PROMPT = """
-You are FitPath, a personalized fitness planning AI assistant that also provides privacy support.
-
-Given the user's answer and the detected privacy risk, write a brief explanation of why this information may or may not be privacy-sensitive.
-
-Return plain text only.
-Do not return JSON.
-Do not use HTML.
-Do not use markdown.
-Keep it to 1-2 short sentences.
-"""
-
-PRIVYPAL_REWRITE_PROMPT = """
-You are FitPath, a personalized fitness planning AI assistant that also provides privacy support.
-
-The user's answer contains personally sensitive information.
-Suggest a more privacy-conscious alternative description using abstraction or generalization.
-
-Return only the alternative description.
-Do not return JSON.
-Do not use HTML.
-Do not use markdown.
-Preserve the meaning needed for fitness planning.
-Generalize private details when possible.
-"""
-
-SUMMARY_PROMPT = """
-You are FitPath.
-
-Summarize only the user's original onboarding answers.
-Do not include privacy rewrites.
-Do not add new information.
-Do not generate a fitness plan yet.
-
-Include:
-- preferred form of address
-- main fitness goal and motivation
-- typical day or daily routine
-- workout environment
-- physical limitations, injuries, or lifestyle factors
-- relevant demographic details
-
-Return plain text only.
-Do not use HTML.
-Keep the summary clear, direct, and concise.
-"""
-
-SUMMARY_REWRITE_PROMPT = """
-You are FitPath, a personalized fitness planning AI assistant that also provides privacy support.
-
-Rewrite the user's onboarding summary before it is saved to memory.
-
-Your rewrite should:
-- remove unnecessary sensitive details
-- generalize private information where possible
-- retain only what is needed for personalization
-- avoid exact details unless needed for fitness safety or planning
-- keep the result useful for FitPath to generate a weekly plan
-
-Return plain text only.
-Do not use HTML.
-"""
-
-FITNESS_PLAN_PROMPT = """
-You are FitPath, a personalized conversational fitness planning AI assistant.
-
-Create a short, concise, actionable weekly fitness plan based on the finalized memory summary.
-
-Requirements:
-- Keep it practical and encouraging.
-- Include a weekly structure.
-- Use the user's goal, typical day, environment, and limitations.
-- Highlight one thing the user can do today.
-- Avoid medical claims.
-- If there are injuries, limitations, or health concerns, suggest consulting a professional when appropriate.
-- End by this closing sentence:
-"Thanks for testing the AI system. You can always come back anytime if you'd like to adjust your plan or get new recommendations."
-
-Return plain text only.
-Do not use HTML.
-"""
 
 
 def call_json(system_prompt: str, user_text: str) -> Dict[str, Any]:
@@ -252,50 +160,50 @@ def clean_plain_text(text: Any) -> str:
 
 def review_privacy(user_input: str) -> Dict[str, Any]:
     try:
-        risk_data = call_json(PRIVYPAL_RISK_PROMPT, user_input)
+        sensitivity_data = call_json(PRIVYPAL_SENSITIVITY_PROMPT, user_input)
     except Exception:
-        risk_data = {
-            "has_private_info": False,
-            "private_info": [],
+        sensitivity_data = {
+            "has_sensitive_info": False,
+            "sensitive_info": [],
         }
 
-    private_info = risk_data.get("private_info", [])
-    if not isinstance(private_info, list):
-        private_info = []
+    sensitive_info = sensitivity_data.get("sensitive_info", [])
+    if not isinstance(sensitive_info, list):
+        sensitive_info = []
 
-    private_info = [clean_plain_text(x) for x in private_info if clean_plain_text(x)]
-    has_private_info = bool(risk_data.get("has_private_info", False)) or bool(private_info)
+    sensitive_info = [clean_plain_text(x) for x in sensitive_info if clean_plain_text(x)]
+    has_sensitive_info = bool(sensitivity_data.get("has_sensitive_info", False)) or bool(sensitive_info)
 
     shared_payload = json.dumps(
         {
             "user_answer": user_input,
-            "has_private_info": has_private_info,
-            "private_info": private_info,
+            "has_sensitive_info": has_sensitive_info,
+            "sensitive_info": sensitive_info,
         },
         ensure_ascii=False,
     )
 
-    if has_private_info:
+    if has_sensitive_info:
         try:
             alternative_description = call_text(PRIVYPAL_REWRITE_PROMPT, shared_payload, temperature=0.2)
         except Exception:
             alternative_description = user_input
 
-        status_text = "Contains sensitive information"
-        message_text = "This input appears to contain personally sensitive information. You may use the alternative description below to make it more abstract or general."
+        status_text = "Contains privacy-sensitive information"
+        message_text = "This input appears to contain privacy-sensitive information. You may use the alternative description below to make it more abstract or general."
     else:
         alternative_description = ""
-        status_text = "Does not contain sensitive information"
-        message_text = "No sensitive information was detected. You are good to go."
+        status_text = "Does not contain privacy-sensitive information"
+        message_text = "No privacy-sensitive information was detected. You are good to go."
 
     return {
-        "has_private_info": has_private_info,
-        "private_info": private_info,
+        "has_private_info": has_sensitive_info,
+        "private_info": sensitive_info,
         "privacy_status": status_text,
         "message_text": clean_plain_text(message_text),
         "alternative_description": clean_plain_text(alternative_description),
+        "sensitivity_evaluation": True,
     }
-
 
 def init_state():
     defaults = {
@@ -413,7 +321,7 @@ st.markdown(
     margin-bottom: 0.45rem;
 }
 
-.risk-tag {
+.sensitivity-tag {
     display: inline-block;
     border-radius: 999px;
     font-size: 0.78rem;
@@ -565,11 +473,11 @@ def render_privypal_card(result: Dict[str, Any]):
         "<div class='agent-card fitpath-card'>"
         "<div class='agent-label fitpath-label'>"
         "FitPath privacy review"
-        f"<span class='risk-tag {tag_class}'>{status_icon}{safe_html_text(status_text)}</span>"
+        f"<span class='sensitivity-tag {tag_class}'>{status_icon}{safe_html_text(status_text)}</span>"
         "</div>"
         "<div class='section-label'>Privacy check result</div>"
         f"<div class='card-text'>{safe_html_text(message_text)}</div>"
-        "<div class='section-label'>Private information noticed</div>"
+        "<div class='section-label'>Sensitive private information detected</div>"
         f"<div class='card-text'>{safe_html_text(private_text)}</div>"
     )
 
@@ -1101,7 +1009,7 @@ if user_input:
             msg_type="privypal_card",
             avatar=FITPATH_AVATAR,
             privacy_result=privacy_result,
-            stage="per_question_privacy_check",
+            stage="per_question_privacy_sensitivity_check",
             save=True,
             extra=privacy_result,
         )

@@ -19,7 +19,7 @@ from prompts import (
     FITNESS_PLAN_PROMPT,
 )
 
-from config.onboarding import ONBOARDING_QUESTIONS, MODEL_NAME, FIG_DIR
+from config.onboarding import ONBOARDING_QUESTIONS
 
 st.set_page_config(
     page_title="FitPath",
@@ -28,9 +28,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+MODEL_NAME = "gpt-4o-mini"
+CONDITION_NAME = "condition_2_single_agent_privacy_coaching"
 
-CONDITION_NAME = "condition_1_multi_agent_privacy_coaching"
 
+FIG_DIR = Path("fig")
 
 
 def find_image(candidates: List[str]) -> Optional[str]:
