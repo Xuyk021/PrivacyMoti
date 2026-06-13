@@ -45,12 +45,12 @@ GDPR special category data:
 - sexual orientation or sex life
 
 HIPAA-related information:
-- health condition
+- physical health condition
+- mental health condition
 - healthcare received
 - healthcare payment
 
 Additional categories:
-- mental health information
 - location data
 - family responsibilities
 - caregiving responsibilities
