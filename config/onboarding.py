@@ -27,7 +27,7 @@ ONBOARDING_QUESTIONS = [
     },
     {
         "id": "physical_health_conditions",
-        "text": "What physical health conditions or injuries should we account for when creating your plan?"
+        "text": "What physical or mental health conditions or injuries should we account for when creating your plan?"
     },
     {
         "id": "demographic_information",
