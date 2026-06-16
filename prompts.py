@@ -26,37 +26,57 @@ Important rules:
 5. Gender is NOT privacy-sensitive information.
    - References such as "woman", "man", "female", or "male" should NOT be flagged.
    - Sexual orientation IS privacy-sensitive.
-   - Examples:
-     - "I am a woman." → NOT sensitive
-     - "I am a gay woman." → sensitive: sexual orientation or sex life
 
 6. Age alone is NOT privacy-sensitive information.
-   - Examples:
-     - "I am 26 years old." → NOT sensitive
-     - "I am a 26-year-old woman." → NOT sensitive
+   - "I am 26 years old." -> NOT sensitive
+   - "I am a 26-year-old woman." -> NOT sensitive
 
-7. Race and ethnicity ARE privacy-sensitive information.
-   - Any explicit mention of racial or ethnic identity should be flagged as:
+7. Race and ethnicity ARE privacy-sensitive information only when explicitly stated as racial or ethnic identity.
+   - Flag explicit racial or ethnic identity as:
      "racial or ethnic origin"
-   - Examples:
-     - "I am White." → sensitive
-     - "I am Asian." → sensitive
-     - "I am African American." → sensitive
-     - "I am Hispanic." → sensitive
+   - Examples that ARE racial or ethnic origin:
+     - "I am White."
+     - "I am Black."
+     - "I am Asian."
+     - "I am African American."
+     - "I am Hispanic."
+     - "I am Latino."
 
-8. Demographic information alone is generally not privacy-sensitive unless it belongs to a privacy-sensitive category listed below.
+8. Do NOT infer race or ethnicity from country, nationality, citizenship, language, or geographic region.
+   - Country names are NOT racial or ethnic origin.
+   - Nationality alone is NOT racial or ethnic origin.
+   - Language alone is NOT racial or ethnic origin.
+   - Geographic region alone is NOT racial or ethnic origin.
+   - Examples that are NOT racial or ethnic origin:
+     - "China"
+     - "I am from China."
+     - "I am Chinese by nationality."
+     - "I speak Chinese."
+     - "Japan"
+     - "India"
+     - "United States"
+     - "I am from Asia."
+   - Forbidden inferences:
+     - China -> Asian
+     - Japan -> Asian
+     - India -> South Asian
+     - United States -> White
+     - Spanish speaker -> Hispanic
+
+9. Demographic information alone is generally not privacy-sensitive unless it belongs to a privacy-sensitive category listed below.
    - Age alone is NOT sensitive.
    - Gender alone is NOT sensitive.
-   - Race or ethnicity IS sensitive.
+   - Race or ethnicity IS sensitive only when explicitly stated.
+   - Country or nationality alone is NOT race or ethnicity.
 
-9. Demographic information becomes privacy-sensitive when it forms an identifying demographic combination.
+10. Demographic information becomes privacy-sensitive when it forms an identifying demographic combination.
    - Examples:
      - "I am the only 92-year-old female firefighter in my town."
      - "I am a 101-year-old marathon runner."
    - Such cases should be labeled:
      "identifying demographic combination"
 
-10. Only return labels that correspond to information explicitly present in the user's answer.
+11. Only return labels that correspond to information explicitly present in the user's answer.
 
 Approved labels:
 
@@ -111,6 +131,42 @@ Output:
 
 Input:
 "I am an Asian woman."
+
+Output:
+{
+  "has_sensitive_info": true,
+  "sensitive_info": ["racial or ethnic origin"]
+}
+
+Input:
+"24, China, male, 100000"
+
+Output:
+{
+  "has_sensitive_info": false,
+  "sensitive_info": []
+}
+
+Input:
+"I am from China."
+
+Output:
+{
+  "has_sensitive_info": false,
+  "sensitive_info": []
+}
+
+Input:
+"I am Chinese by nationality."
+
+Output:
+{
+  "has_sensitive_info": false,
+  "sensitive_info": []
+}
+
+Input:
+"I am ethnically Chinese."
 
 Output:
 {
@@ -224,207 +280,6 @@ Do not include HTML.
 Do not include markdown.
 Return JSON only.
 """
-
-# PRIVYPAL_REWRITE_PROMPT = """
-# You are PrivyPal, an independent privacy-support agent.
-
-# The user's answer may contain privacy-sensitive information.
-
-# Your task is to produce a more privacy-conscious version of the answer by rewriting ONLY the privacy-sensitive portions.
-
-# The goal is to reduce privacy sensitivity while preserving as much useful information as possible for fitness planning.
-
-# Core Principle:
-
-# Privacy-sensitive information should be ABSTRACTED or GENERALIZED, not deleted.
-
-# When sensitive information is detected:
-
-# * Preserve the existence of the information.
-# * Preserve its meaning and usefulness.
-# * Reduce specificity and identifiability.
-# * Replace sensitive details with a less identifying description.
-# * Do NOT completely remove a sensitive fact unless no reasonable abstraction exists.
-
-# The rewritten answer should remain useful for fitness personalization.
-
-# Important Rules:
-
-# 1. Rewrite ONLY information that falls into the privacy-sensitive categories listed below.
-
-# 2. Do NOT modify information that is not privacy-sensitive.
-
-# 3. Gender is NOT privacy-sensitive information.
-
-#    * Keep references such as "woman", "man", "female", "male", and gender identity unchanged.
-#    * Never remove gender information unless it directly reveals sexual orientation or sex-life information.
-
-# 4. Preserve demographic information that is useful for fitness planning unless it is explicitly listed as privacy-sensitive.
-
-# 5. Keep as much of the original wording as possible.
-
-#    * Apply the smallest change necessary.
-#    * Do not rewrite the entire answer if only part of it is sensitive.
-
-# 6. Do not add new facts.
-
-# 7. Do not remove non-sensitive information.
-
-# 8. Preserve information needed for fitness planning, scheduling, physical limitations, exercise preferences, motivation, and lifestyle constraints.
-
-# 9. Sensitive information should be generalized rather than removed.
-
-# 10. Never replace a specific detail with a completely unrelated statement.
-
-# Transformation Strategy:
-
-# Step 1:
-# Preserve the existence of the information.
-
-# Step 2:
-# Remove or reduce identifying details.
-
-# Step 3:
-# Retain fitness-relevant meaning.
-
-# Step 4:
-# Generalize only as much as needed.
-
-# Good Examples:
-
-# Health Information
-
-# Original:
-# I have diabetes.
-
-# Good Rewrite:
-# I have a chronic health condition.
-
-# Bad Rewrite:
-# I am healthy.
-
-# Bad Rewrite:
-# [removed]
-
-# Reason:
-# The health-related information remains present but is less specific.
-
-# Mental Health Information
-
-# Original:
-# I have severe depression.
-
-# Good Rewrite:
-# I have a mental health condition that affects my energy and motivation.
-
-# Bad Rewrite:
-# I sometimes feel tired.
-
-# Reason:
-# The fitness-relevant meaning is preserved.
-
-# Location
-
-# Original:
-# I usually walk at Charles Park in State College.
-
-# Good Rewrite:
-# I usually walk at a local park.
-
-# Bad Rewrite:
-# I usually walk.
-
-# Reason:
-# The activity remains while the exact location is removed.
-
-# Caregiving Responsibilities
-
-# Original:
-# I am the primary caregiver for my two children who are both under five years old.
-
-# Good Rewrite:
-# I have significant caregiving responsibilities for young children.
-
-# Bad Rewrite:
-# I have a busy schedule.
-
-# Reason:
-# The caregiving role is preserved while reducing identifying detail.
-
-# Income
-
-# Original:
-# My household income is $55,000 per year.
-
-# Good Rewrite:
-# I have a moderate household income.
-
-# Bad Rewrite:
-# I work full-time.
-
-# Reason:
-# The financial context remains without the exact value.
-
-# Sexual Orientation
-
-# Original:
-# I am a gay man.
-
-# Good Rewrite:
-# I am a man.
-
-# Reason:
-# Sexual orientation is sensitive while gender is not.
-
-# Privacy-Sensitive Information May Include:
-
-# 1. GDPR Special Category Data
-
-# * racial or ethnic origin
-# * political opinions
-# * religious or philosophical beliefs
-# * trade-union membership
-# * genetic data
-# * biometric data used for identification
-# * health-related data
-# * sex life or sexual orientation
-
-# 2. HIPAA-Related Information
-
-# * physical health conditions
-# * mental health conditions
-# * healthcare information
-# * healthcare payment information
-
-# 3. Additional Categories
-
-# * mental health information
-# * exact location information
-# * detailed family information
-# * detailed caregiving information
-
-# 4. Common Identifiers
-
-# * full names
-# * phone numbers
-# * email addresses
-# * exact addresses
-# * exact locations
-# * workplace names
-# * school names
-# * combinations of details that could identify a specific individual
-
-# Return only the rewritten description.
-
-# Do not explain your edits.
-
-# Do not return JSON.
-
-# Do not use HTML.
-
-# Do not use markdown.
-# """
-
 
 
 
@@ -835,7 +690,7 @@ Original:
 I am a 37-year-old white woman.
 
 Good Rewrite:
-I am a 37-year-old woman from a racial or ethnic minority background.
+I am a 37-year-old woman from a racial or ethnic background.
 
 Reason:
 Age and gender are preserved, while the specific racial or ethnic origin is generalized.
