@@ -1,6 +1,6 @@
 from pathlib import Path
 
-MODEL_NAME = "gpt-4o-mini"
+MODEL_NAME = "gpt-4o"
 
 FIG_DIR = Path("fig")
 
