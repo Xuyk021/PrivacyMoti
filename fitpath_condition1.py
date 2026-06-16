@@ -149,9 +149,75 @@ def clean_plain_text(text: Any) -> str:
     return text
 
 
-def review_privacy(user_input: str) -> Dict[str, Any]:
+def build_privacy_review_payload(question: Dict[str, str], user_answer: str) -> str:
+    question_id = clean_plain_text(question.get("id", ""))
+    question_text = clean_plain_text(question.get("text", ""))
+
+    return json.dumps(
+        {
+            "onboarding_question": {
+                "id": question_id,
+                "text": question_text,
+            },
+            "user_answer": clean_plain_text(user_answer),
+            "instruction": (
+                "Evaluate privacy sensitivity in the user's answer in the context of the current onboarding question. "
+                "Use the question to understand what the answer is referring to, but do not infer sensitive information "
+                "that is not explicitly stated in the answer."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
+def build_rewrite_payload(
+    question: Dict[str, str],
+    user_answer: str,
+    has_sensitive_info: bool,
+    sensitive_info: List[str],
+) -> str:
+    question_id = clean_plain_text(question.get("id", ""))
+    question_text = clean_plain_text(question.get("text", ""))
+
+    return json.dumps(
+        {
+            "onboarding_question": {
+                "id": question_id,
+                "text": question_text,
+            },
+            "user_answer": clean_plain_text(user_answer),
+            "has_sensitive_info": has_sensitive_info,
+            "sensitive_info": sensitive_info,
+            "instruction": (
+                "Rewrite only the privacy-sensitive parts of the user's answer while preserving the parts that directly "
+                "answer the current onboarding question. The alternative description should still be useful for the same "
+                "onboarding question."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
+def build_summary_rewrite_payload(original_summary: str, answers_payload: str) -> str:
+    return json.dumps(
+        {
+            "onboarding_qa": answers_payload,
+            "original_summary": clean_plain_text(original_summary),
+            "instruction": (
+                "Rewrite the original summary for memory with privacy protection. Use the onboarding questions and answers "
+                "as context so the rewritten summary preserves information that is useful for fitness personalization, "
+                "while generalizing or removing only privacy-sensitive details according to the rewrite policy."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
+def review_privacy(user_input: str, question: Dict[str, str]) -> Dict[str, Any]:
+    review_payload = build_privacy_review_payload(question, user_input)
+
     try:
-        sensitivity_data = call_json(PRIVYPAL_SENSITIVITY_PROMPT, user_input)
+        sensitivity_data = call_json(PRIVYPAL_SENSITIVITY_PROMPT, review_payload)
     except Exception:
         sensitivity_data = {
             "has_sensitive_info": False,
@@ -165,18 +231,16 @@ def review_privacy(user_input: str) -> Dict[str, Any]:
     sensitive_info = [clean_plain_text(x) for x in sensitive_info if clean_plain_text(x)]
     has_sensitive_info = bool(sensitivity_data.get("has_sensitive_info", False)) or bool(sensitive_info)
 
-    shared_payload = json.dumps(
-        {
-            "user_answer": user_input,
-            "has_sensitive_info": has_sensitive_info,
-            "sensitive_info": sensitive_info,
-        },
-        ensure_ascii=False,
-    )
-
     if has_sensitive_info:
+        rewrite_payload = build_rewrite_payload(
+            question=question,
+            user_answer=user_input,
+            has_sensitive_info=has_sensitive_info,
+            sensitive_info=sensitive_info,
+        )
+
         try:
-            alternative_description = call_text(PRIVYPAL_REWRITE_PROMPT, shared_payload, temperature=0.2)
+            alternative_description = call_text(PRIVYPAL_REWRITE_PROMPT, rewrite_payload, temperature=0.2)
         except Exception:
             alternative_description = user_input
 
@@ -194,8 +258,9 @@ def review_privacy(user_input: str) -> Dict[str, Any]:
         "message_text": clean_plain_text(message_text),
         "alternative_description": clean_plain_text(alternative_description),
         "sensitivity_evaluation": True,
+        "onboarding_question_id": clean_plain_text(question.get("id", "")),
+        "onboarding_question": clean_plain_text(question.get("text", "")),
     }
-
 
 def init_state():
     defaults = {
@@ -577,8 +642,12 @@ def create_summaries():
     original_summary = clean_plain_text(
         call_text(SUMMARY_PROMPT, answers_payload, temperature=0.2)
     )
+    summary_rewrite_payload = build_summary_rewrite_payload(
+        original_summary=original_summary,
+        answers_payload=answers_payload,
+    )
     privacy_summary = clean_plain_text(
-        call_text(SUMMARY_REWRITE_PROMPT, original_summary, temperature=0.2)
+        call_text(SUMMARY_REWRITE_PROMPT, summary_rewrite_payload, temperature=0.2)
     )
 
     st.session_state.original_summary = original_summary
@@ -991,7 +1060,7 @@ if user_input:
 
         with st.chat_message("assistant", avatar=PRIVYPAL_AVATAR):
             with st.spinner("PrivyPal is reviewing your answer..."):
-                privacy_result = review_privacy(user_input)
+                privacy_result = review_privacy(user_input, q)
 
             render_privypal_card(privacy_result)
 

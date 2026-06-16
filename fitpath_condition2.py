@@ -158,9 +158,40 @@ def clean_plain_text(text: Any) -> str:
     return text
 
 
-def review_privacy(user_input: str) -> Dict[str, Any]:
+def build_privacy_review_payload(question: Dict[str, str], user_input: str) -> str:
+    return json.dumps(
+        {
+            "onboarding_question_id": question.get("id", ""),
+            "onboarding_question": question.get("text", ""),
+            "user_answer": user_input,
+        },
+        ensure_ascii=False,
+    )
+
+
+def build_privacy_rewrite_payload(
+    question: Dict[str, str],
+    user_input: str,
+    has_sensitive_info: bool,
+    sensitive_info: List[str],
+) -> str:
+    return json.dumps(
+        {
+            "onboarding_question_id": question.get("id", ""),
+            "onboarding_question": question.get("text", ""),
+            "user_answer": user_input,
+            "has_sensitive_info": has_sensitive_info,
+            "sensitive_info": sensitive_info,
+        },
+        ensure_ascii=False,
+    )
+
+
+def review_privacy(user_input: str, question: Dict[str, str]) -> Dict[str, Any]:
+    sensitivity_payload = build_privacy_review_payload(question, user_input)
+
     try:
-        sensitivity_data = call_json(PRIVYPAL_SENSITIVITY_PROMPT, user_input)
+        sensitivity_data = call_json(PRIVYPAL_SENSITIVITY_PROMPT, sensitivity_payload)
     except Exception:
         sensitivity_data = {
             "has_sensitive_info": False,
@@ -174,13 +205,11 @@ def review_privacy(user_input: str) -> Dict[str, Any]:
     sensitive_info = [clean_plain_text(x) for x in sensitive_info if clean_plain_text(x)]
     has_sensitive_info = bool(sensitivity_data.get("has_sensitive_info", False)) or bool(sensitive_info)
 
-    shared_payload = json.dumps(
-        {
-            "user_answer": user_input,
-            "has_sensitive_info": has_sensitive_info,
-            "sensitive_info": sensitive_info,
-        },
-        ensure_ascii=False,
+    shared_payload = build_privacy_rewrite_payload(
+        question=question,
+        user_input=user_input,
+        has_sensitive_info=has_sensitive_info,
+        sensitive_info=sensitive_info,
     )
 
     if has_sensitive_info:
@@ -203,6 +232,8 @@ def review_privacy(user_input: str) -> Dict[str, Any]:
         "message_text": clean_plain_text(message_text),
         "alternative_description": clean_plain_text(alternative_description),
         "sensitivity_evaluation": True,
+        "onboarding_question_id": question.get("id", ""),
+        "onboarding_question": question.get("text", ""),
     }
 
 def init_state():
@@ -585,8 +616,17 @@ def create_summaries():
     original_summary = clean_plain_text(
         call_text(SUMMARY_PROMPT, answers_payload, temperature=0.2)
     )
+
+    summary_rewrite_payload = json.dumps(
+        {
+            "onboarding_answers": answers_payload,
+            "original_summary": original_summary,
+        },
+        ensure_ascii=False,
+    )
+
     privacy_summary = clean_plain_text(
-        call_text(SUMMARY_REWRITE_PROMPT, original_summary, temperature=0.2)
+        call_text(SUMMARY_REWRITE_PROMPT, summary_rewrite_payload, temperature=0.2)
     )
 
     st.session_state.original_summary = original_summary
@@ -998,7 +1038,7 @@ if user_input:
 
         with st.chat_message("assistant", avatar=FITPATH_AVATAR):
             with st.spinner("FitPath is reviewing your answer..."):
-                privacy_result = review_privacy(user_input)
+                privacy_result = review_privacy(user_input, q)
 
             render_privypal_card(privacy_result)
 
