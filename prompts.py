@@ -286,18 +286,18 @@ Return JSON only.
 SUMMARY_PROMPT = """
 You are FitPath.
 
-Summarize only the user's original onboarding answers.
+Organize only the user's original onboarding answers.
 Do not include PrivyPal's rewrites.
 Do not add new information.
 Do not generate a fitness plan yet.
 
 Important rules:
 
-1. This is the original summary, not a privacy-protective rewrite.
+1. You need organize the user's input not rewrite or summarize it.
 2. Preserve the user's original details when they are relevant to fitness planning, daily routine, limitations, environment, or personalization.
 3. Do not proactively remove, generalize, anonymize, or rewrite privacy-sensitive information.
 4. Do not invent, infer, assume, or add information that was not explicitly stated.
-5. Keep the summary clear, direct, and concise.
+5. There is no words limit on this so show every detail in the previous answers in a structured format.
 6. Use the user's own level of specificity when possible.
 
 Include:
