@@ -198,15 +198,22 @@ def build_rewrite_payload(
     )
 
 
-def build_summary_rewrite_payload(original_summary: str, answers_payload: str) -> str:
+def build_summary_rewrite_payload(
+    original_summary: str,
+    conversation_payload: List[Dict[str, Any]],
+    privacy_standard: str,
+) -> str:
     return json.dumps(
         {
-            "onboarding_qa": answers_payload,
-            "original_summary": clean_plain_text(original_summary),
+            "previous_conversation": conversation_payload,
+            "reference_summary": clean_plain_text(original_summary),
+            "privacy_standard": clean_plain_text(privacy_standard),
             "instruction": (
-                "Rewrite the original summary for memory with privacy protection. Use the onboarding questions and answers "
-                "as context so the rewritten summary preserves information that is useful for fitness personalization, "
-                "while generalizing or removing only privacy-sensitive details according to the rewrite policy."
+                "Create a new privacy-protective summary directly from previous_conversation, not by rewriting "
+                "reference_summary. For each onboarding item, use alternative_description when one is available; "
+                "otherwise use original_user_answer. Use reference_summary only as a strict template for the output's "
+                "item order, content order, sentence pattern, grammatical structure, headings, labels, and formatting. "
+                "Do not reorder, add, merge, or omit items. Apply privacy_standard to all content."
             ),
         },
         ensure_ascii=False,
@@ -636,6 +643,37 @@ def build_answers_payload() -> str:
     return "\n\n".join(lines)
 
 
+def build_summary_conversation_payload() -> List[Dict[str, Any]]:
+    conversation = []
+
+    for i, item in enumerate(st.session_state.answers, start=1):
+        alternative_description = clean_plain_text(
+            item.get("alternative_description", "")
+        )
+
+        conversation.append({
+            "item_number": i,
+            "question_id": clean_plain_text(item.get("question_id", "")),
+            "onboarding_question": clean_plain_text(item.get("question", "")),
+            "original_user_answer": clean_plain_text(item.get("answer", "")),
+            "has_privacy_sensitive_information": bool(
+                item.get("has_private_info", False)
+            ),
+            "sensitive_information_categories": [
+                clean_plain_text(value)
+                for value in item.get("private_info", [])
+                if clean_plain_text(value)
+            ],
+            "alternative_description": alternative_description,
+            "answer_to_use_for_privacy_protective_summary": (
+                alternative_description
+                if alternative_description
+                else clean_plain_text(item.get("answer", ""))
+            ),
+        })
+
+    return conversation
+
 def create_summaries():
     answers_payload = build_answers_payload()
 
@@ -644,7 +682,8 @@ def create_summaries():
     )
     summary_rewrite_payload = build_summary_rewrite_payload(
         original_summary=original_summary,
-        answers_payload=answers_payload,
+        conversation_payload=build_summary_conversation_payload(),
+        privacy_standard=SUMMARY_REWRITE_PROMPT,
     )
     privacy_summary = clean_plain_text(
         call_text(SUMMARY_REWRITE_PROMPT, summary_rewrite_payload, temperature=0.2)
@@ -652,6 +691,36 @@ def create_summaries():
 
     st.session_state.original_summary = original_summary
     st.session_state.privacy_summary = privacy_summary
+
+    # Save both generated summaries to DynamoDB immediately, regardless of
+    # which version the participant later chooses for memory.
+    save_message(
+        participant_id=st.session_state.participant_id,
+        role="assistant",
+        content=original_summary,
+        turn_index=st.session_state.turn_index,
+        stage="original_summary_generated",
+        agent="FitPath",
+        extra={
+            "summary_type": "original_summary",
+            "is_selected_for_memory": False,
+        },
+    )
+
+    save_message(
+        participant_id=st.session_state.participant_id,
+        role="assistant",
+        content=privacy_summary,
+        turn_index=st.session_state.turn_index,
+        stage="privacy_protective_summary_generated",
+        agent="PrivyPal",
+        extra={
+            "summary_type": "privacy_protective_summary",
+            "is_selected_for_memory": False,
+            "reference_original_summary": original_summary,
+        },
+    )
+
     st.session_state.stage = "summary_choice"
 
     append_message(
@@ -666,7 +735,6 @@ def create_summaries():
         stage="summary_intro",
         save=True,
     )
-
 
 def queue_memory_finalization(final_summary: str, source_label: str):
     """Start a step-by-step finalization flow."""
@@ -1056,6 +1124,9 @@ if user_input:
             "question_id": q["id"],
             "question": q["text"],
             "answer": user_input,
+            "has_private_info": False,
+            "private_info": [],
+            "alternative_description": "",
         })
 
         with st.chat_message("assistant", avatar=PRIVYPAL_AVATAR):
@@ -1063,6 +1134,14 @@ if user_input:
                 privacy_result = review_privacy(user_input, q)
 
             render_privypal_card(privacy_result)
+
+        st.session_state.answers[-1].update({
+            "has_private_info": bool(privacy_result.get("has_private_info", False)),
+            "private_info": privacy_result.get("private_info", []),
+            "alternative_description": clean_plain_text(
+                privacy_result.get("alternative_description", "")
+            ),
+        })
 
         append_message(
             role="assistant",

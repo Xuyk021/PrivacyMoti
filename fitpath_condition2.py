@@ -158,40 +158,81 @@ def clean_plain_text(text: Any) -> str:
     return text
 
 
-def build_privacy_review_payload(question: Dict[str, str], user_input: str) -> str:
+def build_privacy_review_payload(question: Dict[str, str], user_answer: str) -> str:
+    question_id = clean_plain_text(question.get("id", ""))
+    question_text = clean_plain_text(question.get("text", ""))
+
     return json.dumps(
         {
-            "onboarding_question_id": question.get("id", ""),
-            "onboarding_question": question.get("text", ""),
-            "user_answer": user_input,
+            "onboarding_question": {
+                "id": question_id,
+                "text": question_text,
+            },
+            "user_answer": clean_plain_text(user_answer),
+            "instruction": (
+                "Evaluate privacy sensitivity in the user's answer in the context of the current onboarding question. "
+                "Use the question to understand what the answer is referring to, but do not infer sensitive information "
+                "that is not explicitly stated in the answer."
+            ),
         },
         ensure_ascii=False,
     )
 
 
-def build_privacy_rewrite_payload(
+def build_rewrite_payload(
     question: Dict[str, str],
-    user_input: str,
+    user_answer: str,
     has_sensitive_info: bool,
     sensitive_info: List[str],
 ) -> str:
+    question_id = clean_plain_text(question.get("id", ""))
+    question_text = clean_plain_text(question.get("text", ""))
+
     return json.dumps(
         {
-            "onboarding_question_id": question.get("id", ""),
-            "onboarding_question": question.get("text", ""),
-            "user_answer": user_input,
+            "onboarding_question": {
+                "id": question_id,
+                "text": question_text,
+            },
+            "user_answer": clean_plain_text(user_answer),
             "has_sensitive_info": has_sensitive_info,
             "sensitive_info": sensitive_info,
+            "instruction": (
+                "Rewrite only the privacy-sensitive parts of the user's answer while preserving the parts that directly "
+                "answer the current onboarding question. The alternative description should still be useful for the same "
+                "onboarding question."
+            ),
         },
         ensure_ascii=False,
     )
 
 
+def build_summary_rewrite_payload(
+    original_summary: str,
+    conversation_payload: List[Dict[str, Any]],
+    privacy_standard: str,
+) -> str:
+    return json.dumps(
+        {
+            "previous_conversation": conversation_payload,
+            "reference_summary": clean_plain_text(original_summary),
+            "privacy_standard": clean_plain_text(privacy_standard),
+            "instruction": (
+                "Create a new privacy-protective summary directly from previous_conversation, not by rewriting "
+                "reference_summary. For each onboarding item, use alternative_description when one is available; "
+                "otherwise use original_user_answer. Use reference_summary only as a strict template for the output's "
+                "item order, content order, sentence pattern, grammatical structure, headings, labels, and formatting. "
+                "Do not reorder, add, merge, or omit items. Apply privacy_standard to all content."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
 def review_privacy(user_input: str, question: Dict[str, str]) -> Dict[str, Any]:
-    sensitivity_payload = build_privacy_review_payload(question, user_input)
+    review_payload = build_privacy_review_payload(question, user_input)
 
     try:
-        sensitivity_data = call_json(PRIVYPAL_SENSITIVITY_PROMPT, sensitivity_payload)
+        sensitivity_data = call_json(PRIVYPAL_SENSITIVITY_PROMPT, review_payload)
     except Exception:
         sensitivity_data = {
             "has_sensitive_info": False,
@@ -205,16 +246,16 @@ def review_privacy(user_input: str, question: Dict[str, str]) -> Dict[str, Any]:
     sensitive_info = [clean_plain_text(x) for x in sensitive_info if clean_plain_text(x)]
     has_sensitive_info = bool(sensitivity_data.get("has_sensitive_info", False)) or bool(sensitive_info)
 
-    shared_payload = build_privacy_rewrite_payload(
-        question=question,
-        user_input=user_input,
-        has_sensitive_info=has_sensitive_info,
-        sensitive_info=sensitive_info,
-    )
-
     if has_sensitive_info:
+        rewrite_payload = build_rewrite_payload(
+            question=question,
+            user_answer=user_input,
+            has_sensitive_info=has_sensitive_info,
+            sensitive_info=sensitive_info,
+        )
+
         try:
-            alternative_description = call_text(PRIVYPAL_REWRITE_PROMPT, shared_payload, temperature=0.2)
+            alternative_description = call_text(PRIVYPAL_REWRITE_PROMPT, rewrite_payload, temperature=0.2)
         except Exception:
             alternative_description = user_input
 
@@ -232,8 +273,8 @@ def review_privacy(user_input: str, question: Dict[str, str]) -> Dict[str, Any]:
         "message_text": clean_plain_text(message_text),
         "alternative_description": clean_plain_text(alternative_description),
         "sensitivity_evaluation": True,
-        "onboarding_question_id": question.get("id", ""),
-        "onboarding_question": question.get("text", ""),
+        "onboarding_question_id": clean_plain_text(question.get("id", "")),
+        "onboarding_question": clean_plain_text(question.get("text", "")),
     }
 
 def init_state():
@@ -609,6 +650,36 @@ def build_answers_payload() -> str:
         )
     return "\n\n".join(lines)
 
+def build_summary_conversation_payload() -> List[Dict[str, Any]]:
+    conversation = []
+
+    for i, item in enumerate(st.session_state.answers, start=1):
+        alternative_description = clean_plain_text(
+            item.get("alternative_description", "")
+        )
+
+        conversation.append({
+            "item_number": i,
+            "question_id": clean_plain_text(item.get("question_id", "")),
+            "onboarding_question": clean_plain_text(item.get("question", "")),
+            "original_user_answer": clean_plain_text(item.get("answer", "")),
+            "has_privacy_sensitive_information": bool(
+                item.get("has_private_info", False)
+            ),
+            "sensitive_information_categories": [
+                clean_plain_text(value)
+                for value in item.get("private_info", [])
+                if clean_plain_text(value)
+            ],
+            "alternative_description": alternative_description,
+            "answer_to_use_for_privacy_protective_summary": (
+                alternative_description
+                if alternative_description
+                else clean_plain_text(item.get("answer", ""))
+            ),
+        })
+
+    return conversation
 
 def create_summaries():
     answers_payload = build_answers_payload()
@@ -616,21 +687,47 @@ def create_summaries():
     original_summary = clean_plain_text(
         call_text(SUMMARY_PROMPT, answers_payload, temperature=0.2)
     )
-
-    summary_rewrite_payload = json.dumps(
-        {
-            "onboarding_answers": answers_payload,
-            "original_summary": original_summary,
-        },
-        ensure_ascii=False,
+    summary_rewrite_payload = build_summary_rewrite_payload(
+        original_summary=original_summary,
+        conversation_payload=build_summary_conversation_payload(),
+        privacy_standard=SUMMARY_REWRITE_PROMPT,
     )
-
     privacy_summary = clean_plain_text(
         call_text(SUMMARY_REWRITE_PROMPT, summary_rewrite_payload, temperature=0.2)
     )
 
     st.session_state.original_summary = original_summary
     st.session_state.privacy_summary = privacy_summary
+
+    # Save both generated summaries to DynamoDB immediately, regardless of
+    # which version the participant later chooses for memory.
+    save_message(
+        participant_id=st.session_state.participant_id,
+        role="assistant",
+        content=original_summary,
+        turn_index=st.session_state.turn_index,
+        stage="original_summary_generated",
+        agent="FitPath",
+        extra={
+            "summary_type": "original_summary",
+            "is_selected_for_memory": False,
+        },
+    )
+
+    save_message(
+        participant_id=st.session_state.participant_id,
+        role="assistant",
+        content=privacy_summary,
+        turn_index=st.session_state.turn_index,
+        stage="privacy_protective_summary_generated",
+        agent="FitPath_Privacy",
+        extra={
+            "summary_type": "privacy_protective_summary",
+            "is_selected_for_memory": False,
+            "reference_original_summary": original_summary,
+        },
+    )
+
     st.session_state.stage = "summary_choice"
 
     append_message(
@@ -1034,6 +1131,9 @@ if user_input:
             "question_id": q["id"],
             "question": q["text"],
             "answer": user_input,
+            "has_private_info": False,
+            "private_info": [],
+            "alternative_description": "",
         })
 
         with st.chat_message("assistant", avatar=FITPATH_AVATAR):
@@ -1042,10 +1142,18 @@ if user_input:
 
             render_privypal_card(privacy_result)
 
+        st.session_state.answers[-1].update({
+            "has_private_info": bool(privacy_result.get("has_private_info", False)),
+            "private_info": privacy_result.get("private_info", []),
+            "alternative_description": clean_plain_text(
+                privacy_result.get("alternative_description", "")
+            ),
+        })
+
         append_message(
             role="assistant",
             content="FitPath privacy review",
-            agent="FitPath",
+            agent="FitPath_Privacy",
             msg_type="privypal_card",
             avatar=FITPATH_AVATAR,
             privacy_result=privacy_result,

@@ -1,5 +1,6 @@
 import html
 import json
+import random
 import time
 import uuid
 from datetime import datetime, timezone
@@ -10,6 +11,15 @@ import boto3
 import streamlit as st
 from openai import OpenAI
 
+from prompts import (
+    PRIVYPAL_SENSITIVITY_PROMPT,
+    PRIVYPAL_REWRITE_PROMPT,
+    SUMMARY_PROMPT,
+    SUMMARY_REWRITE_PROMPT,
+    FITNESS_PLAN_PROMPT,
+)
+
+from config.onboarding import ONBOARDING_QUESTIONS, MODEL_NAME, FIG_DIR
 
 st.set_page_config(
     page_title="FitPath",
@@ -18,11 +28,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-MODEL_NAME = "gpt-4o-mini"
+
 CONDITION_NAME = "condition_1_multi_agent_privacy_coaching"
 
-
-FIG_DIR = Path("fig")
 
 
 def find_image(candidates: List[str]) -> Optional[str]:
@@ -69,6 +77,10 @@ def make_sort_key(role: str) -> str:
     return f"{now}#{role}#{uuid.uuid4().hex[:6]}"
 
 
+def generate_completion_code() -> str:
+    return f"FitPath_{random.SystemRandom().randint(0, 99999):05d}"
+
+
 def save_message(
     participant_id: str,
     role: str,
@@ -89,123 +101,21 @@ def save_message(
         "condition": CONDITION_NAME,
     }
 
+    try:
+        completion_code = st.session_state.get("completion_code")
+        if completion_code:
+            item["completion_code"] = completion_code
+    except Exception:
+        pass
+
     if extra:
         item["extra"] = json.dumps(extra, ensure_ascii=False)
 
     table.put_item(Item=item)
 
 
-ONBOARDING_QUESTIONS = [
-    {"id": "preferred_name", "text": "How would you like to be addressed?"},
-    {"id": "fitness_goal", "text": "What’s your main fitness goal right now, and why does it matter to you?"},
-    {"id": "workout_environment", "text": "Can you describe the space and environment where you’d most likely work out?"},
-    {"id": "limitations", "text": "Are there any physical limitations, injuries, or lifestyle factors I should keep in mind when building your plan?"},
-    {"id": "age", "text": "To personalize things a bit more, could you share your age or age range?"},
-    {"id": "gender", "text": "How do you identify in terms of gender?"},
-    {"id": "height_weight", "text": "What’s your height and current weight?"},
-]
 
 
-PRIVYPAL_RISK_PROMPT = """
-You are PrivyPal, an independent privacy-support agent.
-
-Review the user's latest answer in a fitness onboarding conversation.
-
-Return only valid JSON:
-{
-  "risk_level": "low" | "moderate" | "high",
-  "has_private_info": true or false,
-  "private_info": ["short labels only"]
-}
-
-Sensitive or private information may include full names, exact locations, contact information,
-medical conditions, injuries, age, gender, height, weight, workplace or school details,
-children or family details, and any combination of details that could identify the user.
-
-Do not include HTML. Do not include markdown.
-"""
-
-PRIVYPAL_EXPLANATION_PROMPT = """
-You are PrivyPal, an independent privacy-support agent.
-
-Given the user's answer and the detected privacy risk, write a brief explanation of why this information may or may not be privacy-sensitive.
-
-Return plain text only.
-Do not return JSON.
-Do not use HTML.
-Do not use markdown.
-Keep it to 1-2 short sentences.
-"""
-
-PRIVYPAL_REWRITE_PROMPT = """
-You are PrivyPal, an independent privacy-support agent.
-
-Rewrite the user's answer in a more privacy-conscious way.
-
-Return only the rewritten text.
-Do not return JSON.
-Do not use HTML.
-Do not use markdown.
-Preserve the meaning needed for fitness planning.
-Generalize private details when possible.
-If there is no meaningful privacy risk, return a concise version of the original answer.
-"""
-
-SUMMARY_PROMPT = """
-You are FitPath.
-
-Summarize only the user's original onboarding answers.
-Do not include PrivyPal's rewrites.
-Do not add new information.
-Do not generate a fitness plan yet.
-
-Include:
-- preferred form of address
-- main fitness goal and motivation
-- workout environment
-- physical limitations, injuries, or lifestyle factors
-- relevant demographic details
-
-Return plain text only.
-Do not use HTML.
-Keep the summary clear, direct, and concise.
-"""
-
-SUMMARY_REWRITE_PROMPT = """
-You are PrivyPal, an independent privacy-support agent.
-
-Rewrite the user's onboarding summary before it is saved to memory.
-
-Your rewrite should:
-- remove unnecessary sensitive details
-- generalize private information where possible
-- retain only what is needed for personalization
-- avoid exact details unless needed for fitness safety or planning
-- keep the result useful for FitPath to generate a weekly plan
-
-Return plain text only.
-Do not use HTML.
-"""
-
-FITNESS_PLAN_PROMPT = """
-You are FitPath, a personalized conversational fitness planning AI assistant.
-
-Create a short, concise, actionable weekly fitness plan based on the finalized memory summary.
-
-Requirements:
-- Keep it practical and encouraging.
-- Include a weekly structure.
-- Use the user's goal, routine, environment, and limitations.
-- Highlight one thing the user can do today.
-- Avoid medical claims.
-- If there are injuries, limitations, or health concerns, suggest consulting a professional when appropriate.
-- End by asking: "Would you like to change anything?"
-- Then include this closing sentence:
-"Thanks for sharing all of that. You can always come back anytime if you’d like to adjust your plan or get new recommendations."
-
-Return plain text only.
-Do not use HTML.
-"""
 
 
 def call_json(system_prompt: str, user_text: str) -> Dict[str, Any]:
@@ -239,53 +149,125 @@ def clean_plain_text(text: Any) -> str:
     return text
 
 
-def review_privacy(user_input: str) -> Dict[str, Any]:
-    try:
-        risk_data = call_json(PRIVYPAL_RISK_PROMPT, user_input)
-    except Exception:
-        risk_data = {
-            "risk_level": "low",
-            "has_private_info": False,
-            "private_info": [],
-        }
+def build_privacy_review_payload(question: Dict[str, str], user_answer: str) -> str:
+    question_id = clean_plain_text(question.get("id", ""))
+    question_text = clean_plain_text(question.get("text", ""))
 
-    risk_level = str(risk_data.get("risk_level", "low")).lower()
-    if risk_level not in ["low", "moderate", "high"]:
-        risk_level = "low"
-
-    private_info = risk_data.get("private_info", [])
-    if not isinstance(private_info, list):
-        private_info = []
-
-    private_info = [clean_plain_text(x) for x in private_info if clean_plain_text(x)]
-
-    shared_payload = json.dumps(
+    return json.dumps(
         {
-            "user_answer": user_input,
-            "risk_level": risk_level,
-            "private_info": private_info,
+            "onboarding_question": {
+                "id": question_id,
+                "text": question_text,
+            },
+            "user_answer": clean_plain_text(user_answer),
+            "instruction": (
+                "Evaluate privacy sensitivity in the user's answer in the context of the current onboarding question. "
+                "Use the question to understand what the answer is referring to, but do not infer sensitive information "
+                "that is not explicitly stated in the answer."
+            ),
         },
         ensure_ascii=False,
     )
 
-    try:
-        explanation = call_text(PRIVYPAL_EXPLANATION_PROMPT, shared_payload, temperature=0.2)
-    except Exception:
-        explanation = "I could not complete a detailed privacy explanation for this answer."
+
+def build_rewrite_payload(
+    question: Dict[str, str],
+    user_answer: str,
+    has_sensitive_info: bool,
+    sensitive_info: List[str],
+) -> str:
+    question_id = clean_plain_text(question.get("id", ""))
+    question_text = clean_plain_text(question.get("text", ""))
+
+    return json.dumps(
+        {
+            "onboarding_question": {
+                "id": question_id,
+                "text": question_text,
+            },
+            "user_answer": clean_plain_text(user_answer),
+            "has_sensitive_info": has_sensitive_info,
+            "sensitive_info": sensitive_info,
+            "instruction": (
+                "Rewrite only the privacy-sensitive parts of the user's answer while preserving the parts that directly "
+                "answer the current onboarding question. The alternative description should still be useful for the same "
+                "onboarding question."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
+def build_summary_rewrite_payload(
+    original_summary: str,
+    conversation_payload: List[Dict[str, Any]],
+    privacy_standard: str,
+) -> str:
+    return json.dumps(
+        {
+            "previous_conversation": conversation_payload,
+            "reference_summary": clean_plain_text(original_summary),
+            "privacy_standard": clean_plain_text(privacy_standard),
+            "instruction": (
+                "Create a new privacy-protective summary directly from previous_conversation, not by rewriting "
+                "reference_summary. For each onboarding item, use alternative_description when one is available; "
+                "otherwise use original_user_answer. Use reference_summary only as a strict template for the output's "
+                "item order, content order, sentence pattern, grammatical structure, headings, labels, and formatting. "
+                "Do not reorder, add, merge, or omit items. Apply privacy_standard to all content."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
+def review_privacy(user_input: str, question: Dict[str, str]) -> Dict[str, Any]:
+    review_payload = build_privacy_review_payload(question, user_input)
 
     try:
-        rewrite = call_text(PRIVYPAL_REWRITE_PROMPT, shared_payload, temperature=0.2)
+        sensitivity_data = call_json(PRIVYPAL_SENSITIVITY_PROMPT, review_payload)
     except Exception:
-        rewrite = user_input
+        sensitivity_data = {
+            "has_sensitive_info": False,
+            "sensitive_info": [],
+        }
+
+    sensitive_info = sensitivity_data.get("sensitive_info", [])
+    if not isinstance(sensitive_info, list):
+        sensitive_info = []
+
+    sensitive_info = [clean_plain_text(x) for x in sensitive_info if clean_plain_text(x)]
+    has_sensitive_info = bool(sensitivity_data.get("has_sensitive_info", False)) or bool(sensitive_info)
+
+    if has_sensitive_info:
+        rewrite_payload = build_rewrite_payload(
+            question=question,
+            user_answer=user_input,
+            has_sensitive_info=has_sensitive_info,
+            sensitive_info=sensitive_info,
+        )
+
+        try:
+            alternative_description = call_text(PRIVYPAL_REWRITE_PROMPT, rewrite_payload, temperature=0.2)
+        except Exception:
+            alternative_description = user_input
+
+        status_text = "Contains privacy-sensitive information"
+        message_text = "This input appears to contain privacy-sensitive information. You may use the alternative description below to make it more abstract or general."
+    else:
+        alternative_description = ""
+        status_text = "Does not contain privacy-sensitive information"
+        message_text = "No privacy-sensitive information was detected. You are good to go."
 
     return {
-        "risk_level": risk_level,
-        "has_private_info": bool(risk_data.get("has_private_info", False)),
-        "private_info": private_info,
-        "brief_explanation": clean_plain_text(explanation),
-        "rewrite": clean_plain_text(rewrite),
+        "has_private_info": has_sensitive_info,
+        "private_info": sensitive_info,
+        "privacy_status": status_text,
+        "message_text": clean_plain_text(message_text),
+        "alternative_description": clean_plain_text(alternative_description),
+        "sensitivity_evaluation": True,
+        "onboarding_question_id": clean_plain_text(question.get("id", "")),
+        "onboarding_question": clean_plain_text(question.get("text", "")),
     }
-
 
 def init_state():
     defaults = {
@@ -304,6 +286,7 @@ def init_state():
         "is_processing_finalization": False,
         "final_notice_start_time": None,
         "final_notice_shown": False,
+        "completion_code": None,
     }
 
     for key, value in defaults.items():
@@ -402,7 +385,7 @@ st.markdown(
     margin-bottom: 0.45rem;
 }
 
-.risk-tag {
+.sensitivity-tag {
     display: inline-block;
     border-radius: 999px;
     font-size: 0.78rem;
@@ -412,19 +395,13 @@ st.markdown(
     vertical-align: middle;
 }
 
-.risk-low {
+.privacy-safe {
     color: #166534;
     background: #dcfce7;
     border: 1px solid #bbf7d0;
 }
 
-.risk-moderate {
-    color: #92400e;
-    background: #fef3c7;
-    border: 1px solid #fde68a;
-}
-
-.risk-high {
+.privacy-sensitive {
     color: #991b1b;
     background: #fee2e2;
     border: 1px solid #fecaca;
@@ -541,32 +518,40 @@ def render_memory_notice_card(content: str):
 
 
 def render_privypal_card(result: Dict[str, Any]):
-    risk_level = str(result.get("risk_level", "low")).lower()
-    if risk_level not in ["low", "moderate", "high"]:
-        risk_level = "low"
+    has_private_info = bool(result.get("has_private_info", False))
+    tag_class = "privacy-sensitive" if has_private_info else "privacy-safe"
+    status_text = clean_plain_text(
+        result.get("privacy_status", "包含隐私信息" if has_private_info else "不包含隐私信息")
+    )
+    status_icon = "" if has_private_info else "✓ "
 
     private_info = result.get("private_info", [])
     if not isinstance(private_info, list):
         private_info = []
 
-    private_text = ", ".join([clean_plain_text(x) for x in private_info]) if private_info else "No specific private information identified."
-    explanation = clean_plain_text(result.get("brief_explanation", ""))
-    rewrite = clean_plain_text(result.get("rewrite", ""))
+    private_text = ", ".join([clean_plain_text(x) for x in private_info]) if private_info else "No specific sensitive information identified."
+    message_text = clean_plain_text(result.get("message_text", ""))
+    alternative_description = clean_plain_text(result.get("alternative_description", ""))
 
     card_html = (
         "<div class='agent-card privypal-card'>"
         "<div class='agent-label privypal-label'>"
         "PrivyPal privacy review"
-        f"<span class='risk-tag risk-{risk_level}'>{risk_level.upper()}</span>"
+        f"<span class='sensitivity-tag {tag_class}'>{status_icon}{safe_html_text(status_text)}</span>"
         "</div>"
-        "<div class='section-label'>Private information noticed</div>"
+        "<div class='section-label'>Privacy check result</div>"
+        f"<div class='card-text'>{safe_html_text(message_text)}</div>"
+        "<div class='section-label'>Sensitive private information detected</div>"
         f"<div class='card-text'>{safe_html_text(private_text)}</div>"
-        "<div class='section-label'>Why this may matter</div>"
-        f"<div class='card-text'>{safe_html_text(explanation)}</div>"
-        "<div class='section-label'>Privacy-conscious rewrite</div>"
-        f"<div class='card-text'>{safe_html_text(rewrite)}</div>"
-        "</div>"
     )
+
+    if has_private_info and alternative_description:
+        card_html += (
+            "<div class='section-label'>Alternative description</div>"
+            f"<div class='card-text'>{safe_html_text(alternative_description)}</div>"
+        )
+
+    card_html += "</div>"
     st.markdown(card_html, unsafe_allow_html=True)
 
 
@@ -658,18 +643,84 @@ def build_answers_payload() -> str:
     return "\n\n".join(lines)
 
 
+def build_summary_conversation_payload() -> List[Dict[str, Any]]:
+    conversation = []
+
+    for i, item in enumerate(st.session_state.answers, start=1):
+        alternative_description = clean_plain_text(
+            item.get("alternative_description", "")
+        )
+
+        conversation.append({
+            "item_number": i,
+            "question_id": clean_plain_text(item.get("question_id", "")),
+            "onboarding_question": clean_plain_text(item.get("question", "")),
+            "original_user_answer": clean_plain_text(item.get("answer", "")),
+            "has_privacy_sensitive_information": bool(
+                item.get("has_private_info", False)
+            ),
+            "sensitive_information_categories": [
+                clean_plain_text(value)
+                for value in item.get("private_info", [])
+                if clean_plain_text(value)
+            ],
+            "alternative_description": alternative_description,
+            "answer_to_use_for_privacy_protective_summary": (
+                alternative_description
+                if alternative_description
+                else clean_plain_text(item.get("answer", ""))
+            ),
+        })
+
+    return conversation
+
 def create_summaries():
     answers_payload = build_answers_payload()
 
     original_summary = clean_plain_text(
         call_text(SUMMARY_PROMPT, answers_payload, temperature=0.2)
     )
+    summary_rewrite_payload = build_summary_rewrite_payload(
+        original_summary=original_summary,
+        conversation_payload=build_summary_conversation_payload(),
+        privacy_standard=SUMMARY_REWRITE_PROMPT,
+    )
     privacy_summary = clean_plain_text(
-        call_text(SUMMARY_REWRITE_PROMPT, original_summary, temperature=0.2)
+        call_text(SUMMARY_REWRITE_PROMPT, summary_rewrite_payload, temperature=0.2)
     )
 
     st.session_state.original_summary = original_summary
     st.session_state.privacy_summary = privacy_summary
+
+    # Save both generated summaries to DynamoDB immediately, regardless of
+    # which version the participant later chooses for memory.
+    save_message(
+        participant_id=st.session_state.participant_id,
+        role="assistant",
+        content=original_summary,
+        turn_index=st.session_state.turn_index,
+        stage="original_summary_generated",
+        agent="FitPath",
+        extra={
+            "summary_type": "original_summary",
+            "is_selected_for_memory": False,
+        },
+    )
+
+    save_message(
+        participant_id=st.session_state.participant_id,
+        role="assistant",
+        content=privacy_summary,
+        turn_index=st.session_state.turn_index,
+        stage="privacy_protective_summary_generated",
+        agent="PrivyPal",
+        extra={
+            "summary_type": "privacy_protective_summary",
+            "is_selected_for_memory": False,
+            "reference_original_summary": original_summary,
+        },
+    )
+
     st.session_state.stage = "summary_choice"
 
     append_message(
@@ -856,6 +907,7 @@ Please enter your Prolific ID to begin.
         st.session_state.is_processing_finalization = False
         st.session_state.final_notice_start_time = None
         st.session_state.final_notice_shown = False
+        st.session_state.completion_code = generate_completion_code()
 
         save_message(
             participant_id=pid,
@@ -864,7 +916,10 @@ Please enter your Prolific ID to begin.
             turn_index=0,
             stage="participant_start",
             agent="system",
-            extra={"condition": CONDITION_NAME},
+            extra={
+                "condition": CONDITION_NAME,
+                "completion_code": st.session_state.completion_code,
+            },
         )
 
         ask_current_question()
@@ -883,8 +938,11 @@ if st.session_state.stage == "complete":
         elapsed = time.time() - st.session_state.final_notice_start_time
 
         if elapsed >= 10:
+            completion_code = st.session_state.get("completion_code") or generate_completion_code()
+            st.session_state.completion_code = completion_code
             st.warning(
-                "You have completed this part of the study. Please return to the previous page to continue."
+                "You have completed the AI tool interaction. Please return the following code to the questionnaire and proceed to the last part of the study. "
+                f"Code: {completion_code}"
             )
             st.session_state.final_notice_shown = True
         elif not st.session_state.final_notice_shown:
@@ -1067,13 +1125,24 @@ if user_input:
             "question_id": q["id"],
             "question": q["text"],
             "answer": user_input,
+            "has_private_info": False,
+            "private_info": [],
+            "alternative_description": "",
         })
 
         with st.chat_message("assistant", avatar=PRIVYPAL_AVATAR):
             with st.spinner("PrivyPal is reviewing your answer..."):
-                privacy_result = review_privacy(user_input)
+                privacy_result = review_privacy(user_input, q)
 
             render_privypal_card(privacy_result)
+
+        st.session_state.answers[-1].update({
+            "has_private_info": bool(privacy_result.get("has_private_info", False)),
+            "private_info": privacy_result.get("private_info", []),
+            "alternative_description": clean_plain_text(
+                privacy_result.get("alternative_description", "")
+            ),
+        })
 
         append_message(
             role="assistant",
@@ -1082,7 +1151,7 @@ if user_input:
             msg_type="privypal_card",
             avatar=PRIVYPAL_AVATAR,
             privacy_result=privacy_result,
-            stage="per_question_privacy_check",
+            stage="per_question_privacy_sensitivity_check",
             save=True,
             extra=privacy_result,
         )

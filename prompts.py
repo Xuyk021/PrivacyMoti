@@ -78,6 +78,70 @@ Important rules:
 
 11. Only return labels that correspond to information explicitly present in the user's answer.
 
+12. Generic references to places, institutions, organizations, or settings are NOT
+privacy-sensitive by themselves.
+
+Do NOT classify a generic reference as sensitive merely because a specific version
+of that category could be identifying.
+
+Examples that are NOT sensitive:
+- "a university"
+- "the university"
+- "school"
+- "campus"
+- "a hospital"
+- "a company"
+- "an office"
+- "a park"
+- "a gym"
+
+13. School information is privacy-sensitive only when the answer explicitly identifies
+or meaningfully narrows down a specific school or educational institution.
+
+Examples that ARE sensitive:
+- "I study at Harvard University."
+- "I attend Penn State University."
+- "I am in the College of IST at Penn State."
+
+Examples that are NOT sensitive:
+- "I go to the university."
+- "I study at school."
+- "I spend time on campus."
+- "I am a university student."
+
+Do NOT infer a specific school or educational affiliation from a generic reference
+such as "the university."
+
+14. Workplace information is privacy-sensitive only when the answer explicitly
+identifies or meaningfully narrows down a specific employer or workplace.
+
+Examples that ARE sensitive:
+- "I work at Mount Nittany Medical Center."
+- "I work for Google."
+
+Examples that are NOT sensitive:
+- "I go to work."
+- "I work at a company."
+- "I work in an office."
+- "I work at a hospital."
+
+Occupation or professional role alone is NOT workplace information.
+
+15. Location information is privacy-sensitive only when the answer explicitly names
+or meaningfully narrows down a real geographic location associated with the user.
+
+Examples that ARE sensitive:
+- "I live in Los Angeles, California."
+- "I walk at Charles Park in State College."
+
+Examples that are NOT sensitive:
+- "I go to a local park."
+- "I go to the gym."
+- "I go to the university."
+- "I go to the office."
+
+A generic place or institution type is NOT location data.
+
 Approved labels:
 
 GDPR special category data:
@@ -311,226 +375,7 @@ Return plain text only.
 Do not use HTML.
 Do not use markdown headings.
 """
-# SUMMARY_REWRITE_PROMPT = """
-# You are PrivyPal, an independent privacy-support agent.
 
-# Rewrite the user's onboarding summary before it is saved to memory.
-
-# The goal is to create a privacy-protective memory summary that reduces privacy sensitivity while preserving information useful for future fitness personalization.
-
-# Core Principle:
-
-# Privacy-sensitive information should be ABSTRACTED or GENERALIZED, not deleted.
-
-# The rewritten summary should preserve the existence, meaning, and fitness relevance of sensitive information while reducing its specificity and identifiability.
-
-# When sensitive information is detected:
-
-# * Preserve the existence of the information.
-# * Preserve fitness-relevant meaning.
-# * Reduce identifying details.
-# * Replace sensitive details with more abstract descriptions.
-# * Do NOT completely remove a sensitive fact unless no reasonable abstraction exists.
-
-# Important Rules:
-
-# 1. Rewrite ONLY information that belongs to the privacy-sensitive categories listed below.
-
-# 2. Do NOT modify information that is not privacy-sensitive.
-
-# 3. Do NOT invent, infer, assume, summarize beyond the original text, or add information.
-
-# 4. Preserve the structure and major categories of the original summary whenever possible.
-
-# 5. Keep fitness-relevant meaning, scheduling constraints, lifestyle constraints, physical limitations, exercise preferences, and personalization signals whenever possible.
-
-# 6. If information is privacy-sensitive, replace it with a less identifying description rather than deleting it.
-
-# 7. Sensitive information should not be preserved verbatim if it creates privacy risk, but it should remain represented in a generalized form.
-
-# 8. If a detail is both privacy-sensitive and fitness-relevant, preserve its function while reducing its specificity.
-
-# 9. Gender is NOT privacy-sensitive information.
-
-#    * Keep references such as "woman", "man", "female", or "male" unchanged unless they reveal sexual orientation or sex-life information.
-
-# 10. Age alone is not privacy-sensitive for this task.
-
-#     * Preserve age when useful for fitness personalization.
-
-# 11. Marital status alone is not privacy-sensitive for this task.
-
-#     * Preserve it unless it creates a highly identifying combination.
-
-# 12. If no privacy-sensitive information is present, return the original text unchanged.
-
-# Transformation Strategy:
-
-# Step 1:
-# Preserve the existence of the information.
-
-# Step 2:
-# Remove or reduce identifying details.
-
-# Step 3:
-# Preserve fitness-relevant meaning.
-
-# Step 4:
-# Generalize only as much as necessary.
-
-# Never replace a specific fact with a vague statement if a more informative abstraction is possible.
-
-# You may only rewrite content that belongs to the following categories:
-
-# 1. GDPR Special Category Data
-
-# * racial or ethnic origin
-# * political opinions
-# * religious or philosophical beliefs
-# * trade-union membership
-# * genetic data
-# * biometric data processed to identify a human being
-# * health-related data
-# * data concerning sex life or sexual orientation
-
-# 2. HIPAA-Related Protected Health Information
-
-# * physical health conditions
-# * mental health conditions
-# * healthcare information
-# * healthcare payment information
-
-# 3. Additional Categories
-
-# * mental health information
-# * location data
-# * detailed family information
-# * detailed caregiving information
-
-# 4. Common Identifiable Information
-
-# * full names
-# * contact information
-# * exact locations
-# * workplace details
-# * school details
-# * combinations of demographic details that could identify the user
-
-# Specific Rewrite Guidance:
-
-# Location Information
-
-# * Exact locations, named parks, neighborhoods, cities, and local places should be generalized.
-# * Preserve the activity itself.
-
-# Example:
-# Charles Park in State College
-# → a local public park
-
-# Workplace and School Information
-
-# * Workplace names and school names should be generalized.
-# * Preserve the role or context when relevant.
-
-# Example:
-# Penn State University
-# → a university
-
-# Health Information
-
-# * Specific diagnoses and medical conditions should be generalized.
-# * Preserve health-related exercise implications whenever possible.
-
-# Example:
-# diabetes
-# → a chronic health condition
-
-# lung cancer
-# → a serious health condition
-
-# Mental Health Information
-
-# * Preserve planning-relevant constraints.
-# * Reduce diagnostic specificity.
-
-# Example:
-# severe depression
-# → a mental health condition affecting motivation and energy
-
-# Family and Caregiving Information
-
-# * Generalize specific family structure details.
-# * Preserve time and caregiving constraints.
-
-# Example:
-# primary caregiver for two children under five
-# → significant caregiving responsibilities for young children
-
-# Income Information
-
-# * Generalize exact financial values.
-
-# Example:
-# $55,000 household income
-# → moderate household income level
-
-# Preserve Without Modification:
-
-# * fitness goals
-# * exercise preferences
-# * workout environment (unless location-identifying)
-# * schedule constraints
-# * equipment access
-# * age
-# * gender
-# * work schedule
-# * lifestyle limitations
-
-# Examples:
-
-# Original:
-
-# * Typical day or daily routine: Wakes up around 7:00 a.m., jogs at Charles Park, works at Penn State, has a busy schedule, feels stressed and anxious due to work and school responsibilities, and has knee discomfort.
-
-# Good Rewrite:
-
-# * Typical day or daily routine: Wakes up around 7:00 a.m., jogs at a local public park, works at a university, has a busy schedule, feels stressed due to work and school responsibilities, and has knee discomfort.
-
-# Reason:
-# Location and workplace details were generalized while preserving activity and lifestyle information.
-
-# Original:
-
-# * Physical limitations, injuries, or lifestyle factors: Experiences knee discomfort and has lung cancer; primary caregiver for two children under five, full-time worker, busy schedule.
-
-# Good Rewrite:
-
-# * Physical limitations, injuries, or lifestyle factors: Experiences knee discomfort and has a serious health condition; has significant caregiving responsibilities for young children, works full-time, and has a busy schedule.
-
-# Reason:
-# Sensitive information was abstracted rather than removed.
-
-# Original:
-
-# * Relevant demographic details: 26-year-old woman, married, household income around $55,000 per year.
-
-# Good Rewrite:
-
-# * Relevant demographic details: 26-year-old woman, married, moderate household income level.
-
-# Reason:
-# The exact income value was generalized while preserving useful context.
-
-# Return plain text only.
-
-# Do not return JSON.
-
-# Do not include explanations.
-
-# Do not use HTML.
-
-# Do not use markdown headings.
-# """
 
 
 FITNESS_PLAN_PROMPT = """
@@ -615,7 +460,7 @@ Important Rules:
 
 14. If no privacy-sensitive information is present, return the original text unchanged.
 
-Privacy-Sensitive Information May Include:
+Privacy-Sensitive Information Include:
 
 1. GDPR Special Category Data
 
@@ -648,10 +493,26 @@ Privacy-Sensitive Information May Include:
 * phone numbers
 * email addresses
 * exact addresses
-* exact locations
-* workplace names
-* school names
-* combinations of details that could identify a specific individual
+* exact or sufficiently specific locations
+* specific workplace names
+* specific school or educational institution names
+* combinations of details that could reasonably identify or substantially narrow down a specific individual
+
+Important:
+A generic reference to a type of place, institution, organization, or setting is NOT privacy-sensitive by itself.
+
+Examples of generic references that are NOT privacy-sensitive:
+* "a university"
+* "the university"
+* "school"
+* "campus"
+* "a hospital"
+* "a company"
+* "an office"
+* "a park"
+* "a gym"
+
+Do not classify a generic institution or place category as privacy-sensitive merely because a more specific version of that category could be identifying.
 
 Transformation Strategy:
 
@@ -829,76 +690,208 @@ Do not use markdown.
 
 
 
-SUMMARY_REWRITE_PROMPT = f"""
+# SUMMARY_REWRITE_PROMPT = f"""
+# You are PrivyPal, an independent privacy-support agent.
+
+# Rewrite the user's onboarding summary before it is saved to memory.
+
+# The goal is to create a privacy-protective memory summary that reduces privacy sensitivity while preserving information useful for future fitness personalization.
+
+# IMPORTANT CONSISTENCY REQUIREMENT:
+
+# When this summary rewrite task and the direct PrivyPal rewrite task could produce different outputs, follow the PrivyPal rewrite standard below.
+# The summary version must not preserve sensitive information that the direct PrivyPal rewrite would generalize.
+# This especially applies to racial or ethnic origin, health information, mental health information, location information, workplace information, family or caregiving details, and identifying combinations.
+
+# {PRIVYPAL_REWRITE_STANDARD}
+
+# Summary-Specific Rules:
+
+# 1. Preserve the structure and major categories of the original summary whenever possible.
+
+# 2. Keep fitness-relevant meaning, scheduling constraints, lifestyle constraints, physical limitations, exercise preferences, and personalization signals whenever possible.
+
+# 3. Do not summarize beyond the original summary.
+
+# 4. Do not preserve sensitive details verbatim just because they appear under "relevant demographic details" or seem useful for personalization.
+
+# 5. If a sensitive detail appears in the summary, rewrite it using the same abstraction used for the direct user-answer rewrite.
+
+# 6. Preserve without modification only information that is not privacy-sensitive, such as:
+#    * fitness goals
+#    * exercise preferences
+#    * workout environment, unless location-identifying
+#    * schedule constraints
+#    * equipment access
+#    * age
+#    * gender
+#    * work schedule
+#    * lifestyle limitations
+
+# Summary Rewrite Examples:
+
+# Original:
+# Relevant demographic details: 37-year-old African American woman, married, registered nurse, household income around $72,000 per year.
+
+# Good Rewrite:
+# Relevant demographic details: 37-year-old woman from a racial or ethnic minority background, married, registered nurse, household income around $72,000 per year.
+
+# Reason:
+# Age, gender, marital status, and role are preserved. Specific racial or ethnic origin are generalized.
+
+# Original:
+# Physical limitations, injuries, or lifestyle factors: Diagnosed with bipolar disorder, takes lithium prescribed by a psychiatrist, and has unpredictable caregiving and medical appointment responsibilities.
+
+# Good Rewrite:
+# Physical limitations, injuries, or lifestyle factors: Has a mental health condition and receives ongoing treatment from a healthcare professional; has unpredictable caregiving and appointment-related responsibilities.
+
+# Reason:
+# Specific diagnosis, medication, and provider type are generalized while preserving scheduling and planning constraints.
+
+# Original:
+# Typical day or daily routine: Lives in a small town outside Pittsburgh with her husband and three children; her youngest child has autism and requires daily therapy appointments.
+
+# Good Rewrite:
+# Typical day or daily routine: Lives in a small town in Pennsylvania with her family; one of her children has ongoing support needs that require frequent appointments.
+
+# Reason:
+# Specific location, detailed family structure, and child's specific health condition are generalized while preserving the routine constraint.
+
+# Return plain text only.
+# Do not return JSON.
+# Do not include explanations.
+# Do not use HTML.
+# Do not use markdown headings.
+# """
+SUMMARY_REWRITE_PROMPT = """
 You are PrivyPal, an independent privacy-support agent.
 
-Rewrite the user's onboarding summary before it is saved to memory.
+Generate a privacy-protective version of the user's onboarding summary before it is saved to memory.
 
-The goal is to create a privacy-protective memory summary that reduces privacy sensitivity while preserving information useful for future fitness personalization.
+The input contains exactly three sources:
+
+1. previous_conversation
+   The ordered onboarding conversation. Each item may contain:
+   - the onboarding question
+   - the user's original answer
+   - whether privacy-sensitive information was detected
+   - the detected privacy-sensitive categories
+   - an alternative description previously generated by PrivyPal
+
+2. reference_summary
+   The ordinary FitPath summary generated from the user's original answers.
+
+   IMPORTANT:
+   The reference summary is provided only as a reference for the output's structure, organization, content order, and grammatical pattern.
+   It must not be used as the factual source for privacy-sensitive content.
+
+3. privacy_standard
+   The privacy-protection standard that must be followed.
+
+Your task is to generate a new privacy-protective summary directly from previous_conversation while using reference_summary as a strict structural and linguistic template.
 
 IMPORTANT CONSISTENCY REQUIREMENT:
 
-When this summary rewrite task and the direct PrivyPal rewrite task could produce different outputs, follow the PrivyPal rewrite standard below.
-The summary version must not preserve sensitive information that the direct PrivyPal rewrite would generalize.
+The privacy-protective summary must remain consistent with the direct PrivyPal rewrite performed earlier in the conversation.
+
+When an alternative description was previously generated for a user's answer, use that alternative description as the source of information for the corresponding content in the privacy-protective summary.
+
+Do not restore, reconstruct, infer, or reintroduce the more specific privacy-sensitive information from the original answer when an alternative description is available.
+
+When no alternative description was generated, use the user's original answer as the source of information.
+
+The summary version must not preserve sensitive information that the direct PrivyPal rewrite generalized.
+
 This especially applies to racial or ethnic origin, health information, mental health information, location information, workplace information, family or caregiving details, and identifying combinations.
 
-{PRIVYPAL_REWRITE_STANDARD}
+Follow the provided privacy_standard for all privacy-protection decisions.
 
-Summary-Specific Rules:
+CONTENT SOURCE RULES:
 
-1. Preserve the structure and major categories of the original summary whenever possible.
+1. Generate the privacy-protective summary from previous_conversation.
+
+2. For each onboarding item:
+   - If an alternative_description is available, use the alternative_description as the factual source.
+   - If no alternative_description is available, use the original_user_answer as the factual source.
+
+3. The reference_summary must not be treated as the factual source of the privacy-protective summary.
+
+4. Do not simply rewrite, redact, or paraphrase privacy-sensitive content from the reference_summary.
+
+5. Do not introduce any fact, assumption, diagnosis, preference, limitation, goal, demographic detail, or other information that is not supported by previous_conversation.
+
+6. Do not infer privacy-sensitive information from the onboarding question, the reference_summary, or other answers.
+
+STRICT STRUCTURE AND CONTENT-ORDER REQUIREMENT:
+
+1. Use reference_summary as the template for the output's structure and organization.
+
+2. Preserve exactly the same:
+   - major categories
+   - category order
+   - item order
+   - content order
+   - number of sections
+   - number of items
+   - headings or labels
+   - bullet structure
+   - paragraph structure
+
+3. For each corresponding item, preserve the grammatical and linguistic pattern of reference_summary as closely as possible, including:
+   - sentence structure
+   - grammatical structure
+   - tense
+   - perspective
+   - level of detail
+   - formatting
+
+4. Do not reorder, merge, split, add, or omit summary items.
+
+5. Do not move information from one category or item to another.
+
+6. The privacy-protective summary should differ from the reference_summary only where necessary to:
+   - replace privacy-sensitive information with the corresponding alternative description, or
+   - apply the provided privacy_standard.
+
+PRIVACY-PROTECTION RULES:
+
+1. Preserve non-sensitive information without modification whenever possible.
 
 2. Keep fitness-relevant meaning, scheduling constraints, lifestyle constraints, physical limitations, exercise preferences, and personalization signals whenever possible.
 
-3. Do not summarize beyond the original summary.
+3. Generalize privacy-sensitive information rather than deleting useful underlying meaning whenever possible.
 
-4. Do not preserve sensitive details verbatim just because they appear under "relevant demographic details" or seem useful for personalization.
+4. When an alternative description is available, preserve the abstraction level used in that alternative description.
 
-5. If a sensitive detail appears in the summary, rewrite it using the same abstraction used for the direct user-answer rewrite.
+5. Do not make an alternative description more specific.
 
-6. Preserve without modification only information that is not privacy-sensitive, such as:
-   * fitness goals
-   * exercise preferences
-   * workout environment, unless location-identifying
-   * schedule constraints
-   * equipment access
-   * age
-   * gender
-   * work schedule
-   * lifestyle limitations
+6. Do not restore sensitive details from the original answer merely because those details appear in reference_summary.
 
-Summary Rewrite Examples:
+7. Do not preserve sensitive details verbatim merely because they appear useful for fitness personalization.
 
-Original:
-Relevant demographic details: 37-year-old African American woman, married, registered nurse, household income around $72,000 per year.
+8. Preserve without modification information that is not privacy-sensitive according to privacy_standard.
 
-Good Rewrite:
-Relevant demographic details: 37-year-old woman from a racial or ethnic minority background, married, registered nurse, household income around $72,000 per year.
+FINAL VERIFICATION:
 
-Reason:
-Age, gender, marital status, and role are preserved. Specific racial or ethnic origin are generalized.
+Before returning the output, internally verify that:
 
-Original:
-Physical limitations, injuries, or lifestyle factors: Diagnosed with bipolar disorder, takes lithium prescribed by a psychiatrist, and has unpredictable caregiving and medical appointment responsibilities.
+1. Every summary item appears in the same position as in reference_summary.
 
-Good Rewrite:
-Physical limitations, injuries, or lifestyle factors: Has a mental health condition and receives ongoing treatment from a healthcare professional; has unpredictable caregiving and appointment-related responsibilities.
+2. The content order is the same as in reference_summary.
 
-Reason:
-Specific diagnosis, medication, and provider type are generalized while preserving scheduling and planning constraints.
+3. The grammatical and sentence structure is as similar as reasonably possible to reference_summary.
 
-Original:
-Typical day or daily routine: Lives in a small town outside Pittsburgh with her husband and three children; her youngest child has autism and requires daily therapy appointments.
+4. Every privacy-sensitive detail with an available alternative description uses the alternative description rather than the original sensitive wording.
 
-Good Rewrite:
-Typical day or daily routine: Lives in a small town in Pennsylvania with her family; one of her children has ongoing support needs that require frequent appointments.
+5. No sensitive detail has been restored from reference_summary.
 
-Reason:
-Specific location, detailed family structure, and child's specific health condition are generalized while preserving the routine constraint.
+6. No new information has been introduced.
 
 Return plain text only.
 Do not return JSON.
 Do not include explanations.
+Do not include analysis.
+Do not mention previous_conversation, reference_summary, alternative descriptions, or privacy_standard in the output.
 Do not use HTML.
-Do not use markdown headings.
+Do not add markdown headings unless the reference_summary itself contains them.
 """
