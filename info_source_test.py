@@ -593,7 +593,7 @@ def render_privypal_card(result: Dict[str, Any]):
             "<div class='section-label'>Alternative description</div>"
             f"<div class='card-text'>"
             f"{safe_html_text(alternative_description)}"
-            "</div>“
+            "</div>"
         )
 
     card_html += "</div>"
