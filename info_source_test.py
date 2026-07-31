@@ -56,6 +56,35 @@ USER_AVATAR = find_image(["user_icon.png", "user.png", "User.png"])
 MEMORY_AVATAR = find_image(["memory_icon.png", "memory.png", "Memory.png"])
 
 
+def load_svg(filename: str) -> str:
+    """Read an SVG file so it can be embedded directly in HTML."""
+    svg_path = FIG_DIR / filename
+
+    try:
+        return svg_path.read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return ""
+
+def get_privacy_source_config() -> Dict[str, str]:
+    """Return the source label and icon based on the study condition."""
+    if CONDITION_NAME == "condition_government":
+        return {
+            "source_name": "Government privacy guidelines",
+            "icon": load_svg("info_government.svg"),
+        }
+
+    elif CONDITION_NAME == "condition_other":
+        return {
+            "source_name": "Other users",
+            "icon": load_svg("info_community.svg"),
+        }
+
+    else:
+        return {
+            "source_name": "Our AI model",
+            "icon": load_svg("info_ai.svg"),
+        }
+
 def get_openai_client() -> OpenAI:
     try:
         return OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -398,6 +427,29 @@ st.markdown(
     height: 2.7rem;
     font-weight: 650;
 }
+.privacy-check-text {
+    margin: 0.2rem 0 0.55rem 0;
+    line-height: 1.65;
+}
+
+.privacy-source-name {
+    font-weight: 800;
+    color: #111827;
+}
+
+.privacy-source-icon {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.35rem;
+    vertical-align: middle;
+    transform: translateY(0.15rem);
+}
+
+.privacy-source-icon svg {
+    width: 25px;
+    height: 25px;
+    display: inline-block;
+}
 
 div[data-testid="stDialog"] div[data-testid="stVerticalBlockBorderWrapper"] {
     border: none !important;
@@ -456,39 +508,96 @@ def render_memory_notice_card(content: str):
 
 def render_privypal_card(result: Dict[str, Any]):
     has_private_info = bool(result.get("has_private_info", False))
+
     tag_class = "privacy-sensitive" if has_private_info else "privacy-safe"
+
     status_text = clean_plain_text(
-        result.get("privacy_status", "包含隐私信息" if has_private_info else "不包含隐私信息")
+        result.get(
+            "privacy_status",
+            "Contains privacy-sensitive information"
+            if has_private_info
+            else "Does not contain privacy-sensitive information",
+        )
     )
+
     status_icon = "" if has_private_info else "✓ "
 
     private_info = result.get("private_info", [])
     if not isinstance(private_info, list):
         private_info = []
 
-    private_text = ", ".join([clean_plain_text(x) for x in private_info]) if private_info else "No specific sensitive information identified."
+    private_text = (
+        ", ".join(
+            clean_plain_text(item)
+            for item in private_info
+            if clean_plain_text(item)
+        )
+        if private_info
+        else "No specific sensitive information identified."
+    )
+
     message_text = clean_plain_text(result.get("message_text", ""))
-    alternative_description = clean_plain_text(result.get("alternative_description", ""))
+    alternative_description = clean_plain_text(
+        result.get("alternative_description", "")
+    )
+
+    # Select the source name and SVG icon for the current condition.
+    source_config = get_privacy_source_config()
+    source_name = source_config["source_name"]
+    source_icon = source_config["icon"]
+
+    # Remove the source name from the beginning of the original message,
+    # because it will be displayed separately in bold.
+    if message_text.startswith(source_name):
+        message_body = message_text[len(source_name):].lstrip()
+    else:
+        message_body = message_text
+
+    icon_html = ""
+    if source_icon:
+        icon_html = (
+            f"<span class='privacy-source-icon'>{source_icon}</span>"
+        )
 
     card_html = (
         "<div class='agent-card privypal-card'>"
+
         "<div class='agent-label privypal-label'>"
         "Privacy review"
-        f"<span class='sensitivity-tag {tag_class}'>{status_icon}{safe_html_text(status_text)}</span>"
+        f"<span class='sensitivity-tag {tag_class}'>"
+        f"{status_icon}{safe_html_text(status_text)}"
+        "</span>"
         "</div>"
+
         "<div class='section-label'>Privacy check result</div>"
-        f"<div class='card-text'>{safe_html_text(message_text)}</div>"
-        "<div class='section-label'>Sensitive private information detected</div>"
-        f"<div class='card-text'>{safe_html_text(private_text)}</div>"
+
+        "<div class='privacy-check-text'>"
+        f"<span class='privacy-source-name'>"
+        f"{safe_html_text(source_name)}"
+        "</span> "
+        f"{safe_html_text(message_body)}"
+        f"{icon_html}"
+        "</div>"
+
+        "<div class='section-label'>"
+        "Sensitive private information detected"
+        "</div>"
+
+        f"<div class='card-text'>"
+        f"{safe_html_text(private_text)}"
+        "</div>"
     )
 
     if has_private_info and alternative_description:
         card_html += (
             "<div class='section-label'>Alternative description</div>"
-            f"<div class='card-text'>{safe_html_text(alternative_description)}</div>"
+            f"<div class='card-text'>"
+            f"{safe_html_text(alternative_description)}"
+            "</div>“
         )
 
     card_html += "</div>"
+
     st.markdown(card_html, unsafe_allow_html=True)
 
 
