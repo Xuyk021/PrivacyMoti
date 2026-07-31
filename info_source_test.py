@@ -1,6 +1,7 @@
 import html
 import json
 import random
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -28,8 +29,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-MODEL_NAME = "gpt-4o-mini"
-CONDITION_NAME = "condition_government"
+MODEL_NAME = "gpt-4o"
+CONDITION_NAME = "condition_other"
 
 
 FIG_DIR = Path("fig")
@@ -39,8 +40,16 @@ def generate_check_message() -> str:
         return "Government privacy guidelines flagged this input as containing privacy-sensitive information. You may use the alternative description below to make it more abstract or general."
     elif CONDITION_NAME == "condition_other":
         return "Other users flagged this input as containing privacy-sensitive information. You may use the alternative description below to make it more abstract or general."
-    else:
+    elif CONDITION_NAME == "condition_ai":
         return "Our AI model flagged this input as containing privacy-sensitive information. You may use the alternative description below to make it more abstract or general."
+
+def generate_welcome_title() -> str:
+    if CONDITION_NAME == "condition_government":
+        return "Government Privacy Guidelines Condition"
+    elif CONDITION_NAME == "condition_other":
+        return "Crowd Condition"
+    else:
+        return "AI Model Condition"
 
 def find_image(candidates: List[str]) -> Optional[str]:
     for name in candidates:
@@ -57,33 +66,115 @@ MEMORY_AVATAR = find_image(["memory_icon.png", "memory.png", "Memory.png"])
 
 
 def load_svg(filename: str) -> str:
-    """Read an SVG file so it can be embedded directly in HTML."""
     svg_path = FIG_DIR / filename
 
     try:
-        return svg_path.read_text(encoding="utf-8")
+        svg = svg_path.read_text(encoding="utf-8")
+
+        
     except (FileNotFoundError, OSError):
         return ""
 
+    # Remove XML declaration
+    svg = re.sub(
+        r"<\?xml[^>]*\?>",
+        "",
+        svg,
+        flags=re.IGNORECASE,
+    )
+
+    # Remove comments
+    svg = re.sub(
+        r"<!--.*?-->",
+        "",
+        svg,
+        flags=re.DOTALL,
+    )
+
+    # Replace fixed size instead of removing it
+    svg = re.sub(
+        r'width="[^"]*"',
+        'width="1em"',
+        svg,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+    svg = re.sub(
+        r'height="[^"]*"',
+        'height="1em"',
+        svg,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+    svg = svg.replace(
+        "<svg",
+        '<svg aria-hidden="true" focusable="false"',
+        1,
+    )
+
+    return svg.strip()
 def get_privacy_source_config() -> Dict[str, str]:
-    """Return the source label and icon based on the study condition."""
+    """Return the source label, icon, and explanatory text."""
+
     if CONDITION_NAME == "condition_government":
         return {
             "source_name": "Government privacy guidelines",
             "icon": load_svg("info_government.svg"),
+            "description": (
+                "The privacy check is conducted using privacy assessment criteria "
+                "derived from applicable government privacy guidelines."
+            ),
+            "footer_text": (
+                "The privacy check uses government privacy guidelines."
+            ),
+            "summary_badge": (
+                "Based on government privacy guidelines"
+            )
         }
 
     elif CONDITION_NAME == "condition_other":
         return {
             "source_name": "Other users",
             "icon": load_svg("info_community.svg"),
+            "description": (
+                "The privacy check is conducted using privacy assessment criteria "
+                "established based on feedback from other users."
+            ),
+            "footer_text": (
+                "The privacy check uses feedback from other users."
+            ),
+            "summary_badge": (
+                "Based on feedback from other users"
+            )
         }
 
     else:
         return {
             "source_name": "Our AI model",
             "icon": load_svg("info_ai.svg"),
+            "description": (
+                "The privacy check is conducted using privacy assessment criteria "
+                "established by our AI model."
+            ),
+            "footer_text": (
+                "The privacy check uses criteria established by our AI model."
+            ),
+            "summary_badge": (
+                "Based on our AI model"
+            )
         }
+def build_privacy_source_icon(icon_svg: str) -> str:
+    """Build the inline condition-source icon used across the interface."""
+    if not icon_svg:
+        return ""
+
+    return (
+        "<span class='privacy-source-icon'>"
+        f"{icon_svg}"
+        "</span>"
+    )
 
 def get_openai_client() -> OpenAI:
     try:
@@ -389,7 +480,7 @@ st.markdown(
 }
 
 .summary-card {
-    height: 460px;
+    height: 490px;
     padding: 1rem;
     border-radius: 1.2rem;
     border: 1px solid #e5e7eb;
@@ -413,7 +504,61 @@ st.markdown(
 
 .summary-title {
     font-weight: 800;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.1rem;
+}
+
+.summary-source-row{
+    display:flex;
+    justify-content:flex-end;
+    margin-top:0.05rem;
+    margin-bottom:0.1rem;
+}
+
+.summary-source-wrapper{
+    display:inline-flex;
+    align-items:center;
+    gap:0.1rem;
+}
+
+.summary-title {
+    margin-bottom: 0;
+    flex: 0 0 auto;
+}
+
+.summary-source-wrapper {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.1rem;
+    flex: 0 0 auto;
+}
+
+.summary-source-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.28rem 0.65rem;
+    border-radius: 0.35rem;
+    background: #a82ba8;
+    color: #ffffff;
+    font-size: 0.76rem;
+    font-weight: 700;
+    line-height: 1.25;
+    white-space: nowrap;
+}
+
+.summary-source-wrapper .privacy-source-icon {
+    margin-left: 0;
+    transform: none;
+}
+
+.summary-source-wrapper .privacy-source-icon svg {
+    width: 24px;
+    height: 24px;
+    display: block;
+}
+
+.summary-source-placeholder{
+    height:36px;
+    margin-bottom:1.7rem;
 }
 
 .summary-caption {
@@ -437,6 +582,24 @@ st.markdown(
     color: #111827;
 }
 
+.privacy-safe-message {
+    margin: 0.35rem 0 0.8rem 0;
+    text-align: left;
+    font-weight: 500;
+    line-height: 1.6;
+}
+
+.privacy-source-footer {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 0.65rem;
+    font-size: 1rem;
+    font-weight: 800;
+    color: #a72ca8;
+    line-height: 1.5;
+}
+
 .privacy-source-icon {
     display: inline-flex;
     align-items: center;
@@ -449,6 +612,13 @@ st.markdown(
     width: 25px;
     height: 25px;
     display: inline-block;
+}
+
+.welcome-privacy-description {
+    font-weight: 700;
+    line-height: 1.65;
+    margin: 1rem 0;
+    color: #a72ca8;
 }
 
 div[data-testid="stDialog"] div[data-testid="stVerticalBlockBorderWrapper"] {
@@ -514,9 +684,11 @@ def render_privypal_card(result: Dict[str, Any]):
     status_text = clean_plain_text(
         result.get(
             "privacy_status",
-            "Contains privacy-sensitive information"
-            if has_private_info
-            else "Does not contain privacy-sensitive information",
+            (
+                "Contains privacy-sensitive information"
+                if has_private_info
+                else "Does not contain privacy-sensitive information"
+            ),
         )
     )
 
@@ -536,27 +708,25 @@ def render_privypal_card(result: Dict[str, Any]):
         else "No specific sensitive information identified."
     )
 
-    message_text = clean_plain_text(result.get("message_text", ""))
+    message_text = clean_plain_text(
+        result.get("message_text", "")
+    )
+
     alternative_description = clean_plain_text(
         result.get("alternative_description", "")
     )
 
-    # Select the source name and SVG icon for the current condition.
     source_config = get_privacy_source_config()
     source_name = source_config["source_name"]
     source_icon = source_config["icon"]
-
-    # Remove the source name from the beginning of the original message,
-    # because it will be displayed separately in bold.
-    if message_text.startswith(source_name):
-        message_body = message_text[len(source_name):].lstrip()
-    else:
-        message_body = message_text
+    footer_text = source_config["footer_text"]
 
     icon_html = ""
     if source_icon:
         icon_html = (
-            f"<span class='privacy-source-icon'>{source_icon}</span>"
+            "<span class='privacy-source-icon'>"
+            f"{source_icon}"
+            "</span>"
         )
 
     card_html = (
@@ -570,35 +740,69 @@ def render_privypal_card(result: Dict[str, Any]):
         "</div>"
 
         "<div class='section-label'>Privacy check result</div>"
+    )
 
-        "<div class='privacy-check-text'>"
-        f"<span class='privacy-source-name'>"
-        f"{safe_html_text(source_name)}"
-        "</span> "
-        f"{safe_html_text(message_body)}"
-        f"{icon_html}"
-        "</div>"
+    # Sensitive result:
+    # display the attributed source message as before.
+    if has_private_info:
+        if message_text.startswith(source_name):
+            message_body = message_text[len(source_name):].lstrip()
+        else:
+            message_body = message_text
 
+        card_html += (
+            "<div class='privacy-check-text'>"
+            "<span class='privacy-source-name'>"
+            f"{safe_html_text(source_name)}"
+            "</span> "
+            f"{safe_html_text(message_body)}"
+            f"{icon_html}"
+            "</div>"
+        )
+
+    # Safe result:
+    # show only the centered confirmation message.
+    else:
+        card_html += (
+            "<div class='privacy-safe-message'>"
+            f"{safe_html_text(message_text)}"
+            "</div>"
+        )
+
+    card_html += (
         "<div class='section-label'>"
         "Sensitive private information detected"
         "</div>"
 
-        f"<div class='card-text'>"
+        "<div class='card-text'>"
         f"{safe_html_text(private_text)}"
         "</div>"
     )
 
+    # Only show the alternative description for sensitive inputs.
     if has_private_info and alternative_description:
         card_html += (
             "<div class='section-label'>Alternative description</div>"
-            f"<div class='card-text'>"
+            "<div class='card-text'>"
             f"{safe_html_text(alternative_description)}"
+            "</div>"
+        )
+
+    # For safe inputs, add the condition-source reminder at the bottom.
+    if not has_private_info:
+        card_html += (
+            "<div class='privacy-source-footer'>"
+            f"{safe_html_text(footer_text)}"
+            f"{icon_html}"
             "</div>"
         )
 
     card_html += "</div>"
 
-    st.markdown(card_html, unsafe_allow_html=True)
+    st.markdown(
+        card_html,
+        unsafe_allow_html=True,
+    )
 
 
 def append_message(
@@ -848,21 +1052,35 @@ st.markdown(
 )
 
 
-@st.dialog("Welcome to FitPath")
+@st.dialog(generate_welcome_title())
 def welcome_dialog():
-    st.markdown("### FitPath")
-    st.markdown(
-        """
-FitPath is a personalized conversational fitness planning AI assistant.
+    source_config = get_privacy_source_config()
 
-It includes a memory feature that helps provide a more personalized fitness plan.
-
-FitPath also collaborates with **PrivyPal**, an independent privacy-support agent.
-PrivyPal operates independently and does not use memory.
-
-Please enter your Prolific ID to begin.
-        """
+    icon_html = build_privacy_source_icon(
+        source_config["icon"]
     )
+
+    welcome_html = (
+        "<h3>FitPath</h3>"
+
+        "<p>"
+        "FitPath is a personalized conversational fitness planning AI assistant."
+        "</p>"
+
+        "<p>"
+        "To support your well-being, FitPath includes a privacy check "
+        "before generating recommendations."
+        "</p>"
+
+        "<p class='welcome-privacy-description'>"
+        f"{safe_html_text(source_config['description'])}"
+        f"{icon_html}"
+        "</p>"
+
+        "<p>Please enter your Prolific ID to begin.</p>"
+    )
+
+    st.markdown(welcome_html, unsafe_allow_html=True)
 
     pid = st.text_input("Prolific ID", placeholder="Enter your Prolific ID")
 
@@ -944,6 +1162,8 @@ if st.session_state.stage == "summary_choice":
             "<div class='summary-card original'>"
             "<div class='summary-title'>Original summary</div>"
             "<div class='summary-caption'>More detailed version based directly on your answers.</div>"
+            "<div class='summary-source-placeholder'></div>"
+            
             f"<div class='card-text'>{safe_html_text(st.session_state.original_summary or '')}</div>"
             "</div>"
         )
@@ -956,11 +1176,45 @@ if st.session_state.stage == "summary_choice":
         )
 
     with col2:
+        source_config = get_privacy_source_config()
+
+        summary_icon_html = ""
+        if source_config["icon"]:
+            summary_icon_html = (
+                "<span class='privacy-source-icon'>"
+                f"{source_config['icon']}"
+                "</span>"
+            )
+
         summary_html = (
             "<div class='summary-card privacy'>"
-            "<div class='summary-title'>Privacy-protective summary</div>"
-            "<div class='summary-caption'>More generalized version prepared by PrivyPal.</div>"
-            f"<div class='card-text'>{safe_html_text(st.session_state.privacy_summary or '')}</div>"
+
+            "<div class='summary-title'>"
+            "Privacy-protective summary"
+            "</div>"
+            "<div class='summary-caption'>"
+            "More generalized version prepared by FitPath."
+            "</div>"
+            "<div class='summary-source-row'>"
+
+            "<div class='summary-source-wrapper'>"
+
+            "<span class='summary-source-badge'>"
+            f"{safe_html_text(source_config['summary_badge'])}"
+            "</span>"
+
+            f"{summary_icon_html}"
+
+            "</div>"
+
+            "</div>"
+
+
+
+            "<div class='card-text'>"
+            f"{safe_html_text(st.session_state.privacy_summary or '')}"
+            "</div>"
+
             "</div>"
         )
         st.markdown(summary_html, unsafe_allow_html=True)
