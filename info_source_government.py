@@ -756,7 +756,6 @@ def render_privypal_card(result: Dict[str, Any]):
             f"{safe_html_text(source_name)}"
             "</span> "
             f"{safe_html_text(message_body)}"
-            f"{icon_html}"
             "</div>"
         )
 
@@ -789,13 +788,13 @@ def render_privypal_card(result: Dict[str, Any]):
         )
 
     # For safe inputs, add the condition-source reminder at the bottom.
-    if not has_private_info:
-        card_html += (
-            "<div class='privacy-source-footer'>"
-            f"{safe_html_text(footer_text)}"
-            f"{icon_html}"
-            "</div>"
-        )
+    
+    card_html += (
+        "<div class='privacy-source-footer'>"
+        f"{safe_html_text(footer_text)}"
+        f"{icon_html}"
+        "</div>"
+    )
 
     card_html += "</div>"
 
